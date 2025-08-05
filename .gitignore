@@ -1,2 +1,5 @@
 device_metrics.zip
 device_metrics/device_metrics.csv
+data/
+outdated_files/
+dashboard/
