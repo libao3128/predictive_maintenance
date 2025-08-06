@@ -21,8 +21,17 @@ class InverterTimeSeriesDataset(Dataset):
         for device, group in self.data.groupby('device_name'):
             values = group[feature_cols].values
             labels = group[label_col].values
+            times = group['event_local_time'].values
 
             for i in range(0, len(group) - window_size, stride):
+                # 檢查 window 內的時間是否連續
+                window_times = times[i:i+window_size]
+                # 假設 event_local_time 是 pandas.Timestamp 或 datetime
+                time_diffs = [window_times[j+1] - window_times[j] for j in range(len(window_times)-1)]
+                # 檢查是否所有時間間隔都相同
+                if not all(td == time_diffs[0] for td in time_diffs):
+                    continue
+
                 window_X = values[i:i+window_size]
                 window_y = labels[i+window_size-1]  # 預測最後一點的 label
                 if window_y == -1:
