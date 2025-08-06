@@ -25,6 +25,9 @@ class InverterTimeSeriesDataset(Dataset):
             for i in range(0, len(group) - window_size, stride):
                 window_X = values[i:i+window_size]
                 window_y = labels[i+window_size-1]  # 預測最後一點的 label
+                if window_y == -1:
+                    # is in failure session, skip
+                    continue
                 self.samples.append((window_X, window_y))
 
     def __len__(self):
