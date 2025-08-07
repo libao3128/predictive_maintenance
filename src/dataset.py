@@ -11,7 +11,8 @@ class InverterTimeSeriesDataset(Dataset):
         self.label_col = label_col
         self.window_size = window_size
         self.stride = stride
-        self.samples = []
+        self.X = []
+        self.y = []
 
         # 預處理檢查
         dataframe = dataframe.sort_values(['device_name', 'event_local_time']).reset_index(drop=True)
@@ -41,12 +42,14 @@ class InverterTimeSeriesDataset(Dataset):
             runs = np.where(good_indices == 0)[0]
             start = 0
             for end in runs:
-                self._add_windows_from_block(values[start:end+1], labels[start:end+1], self.samples)
+                self._add_windows_from_block(values[start:end+1], labels[start:end+1])
                 start = end + 1
                 
-            self._add_windows_from_block(values[start:], labels[start:], self.samples)  # 最後一段
+            self._add_windows_from_block(values[start:], labels[start:])  # 最後一段
+        self.X = torch.tensor(np.stack(self.X), dtype=torch.float32)
+        self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
 
-    def _add_windows_from_block(self, X_block, y_block, output_samples):
+    def _add_windows_from_block(self, X_block, y_block):
         if len(X_block) < self.window_size:
             return
 
@@ -57,11 +60,12 @@ class InverterTimeSeriesDataset(Dataset):
         for x, y in zip(windows_X, windows_y):
             if y == -1:
                 continue
-            output_samples.append((x, y))
+            self.X.append(x)
+            self.y.append(y)
+
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.X)
 
     def __getitem__(self, idx):
-        x, y = self.samples[idx]
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+        return self.X[idx], self.y[idx]

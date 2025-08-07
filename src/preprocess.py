@@ -10,6 +10,7 @@ def load_parquet_data(parquet_dir: str) -> pd.DataFrame:
     paths = glob(os.path.join(parquet_dir, '*.parquet'))
     dfs = [pd.read_parquet(p) for p in paths]
     df = pd.concat(dfs, ignore_index=True)
+    df['event_local_time'] = pd.to_datetime(df['event_local_time'])
     print(f"Loaded {len(paths)} parquet files → {df.shape[0]} rows")
     return df
 
@@ -22,6 +23,8 @@ def load_failure_sessions(csv_path: str, min_days: int = 3) -> pd.DataFrame:
     )
     df = df.drop(columns=[c for c in df.columns if c.startswith('Unnamed')], errors='ignore')
     df['duration'] = pd.to_timedelta(df['duration'])
+    df['start_time'] = pd.to_datetime(df['start_time'])
+    df['end_time'] = pd.to_datetime(df['end_time'])
     df = df[df['duration'] > pd.Timedelta(days=min_days)]
     print(f"Kept {len(df)} sessions longer than {min_days} days")
     return df
@@ -92,4 +95,15 @@ def prepare_dataset(inverter_df: pd.DataFrame,
     return labeled_df
 
 
-
+def train_test_split_on_time(df: pd.DataFrame, test_size: float = 0.2, time_col: str = 'event_local_time') -> tuple:
+    """
+    Split the DataFrame into training and testing sets based on time.
+    """
+    df = df.sort_values(time_col)
+    n = len(df)
+    test_n = int(n * test_size)
+    train_df = df[:-test_n]
+    test_df = df[-test_n:]
+    print(f"Train set size: {len(train_df)} Train set time range: {train_df['event_local_time'].min()} to {train_df['event_local_time'].max()}")
+    print(f"Test set size: {len(test_df)} Test set time range: {test_df['event_local_time'].min()} to {test_df['event_local_time'].max()}")
+    return train_df, test_df

@@ -8,7 +8,6 @@ def train_loop(model,
                optimizer=None,
                criterion=None,
                num_epochs=10,
-               time_step=30,
                scheduler=None,
                log_interval=100):
     """
@@ -66,46 +65,3 @@ def train_loop(model,
             scheduler.step()
 
     print("🏁 Training completed.")
-
-if __name__ == "__main__":
-    from .model import CNNLSTMModel as Model
-    from .data_loader import InverterTimeSeriesDataset
-
-
-    # 假設你有一個處理過的 dataframe：
-    # - 已有時間順序
-    # - 已補值/標準化
-    # - 有 label 欄位
-    # - 有 feature 欄位（你已選好）
-
-    feature_cols = ['AC_POWER']  # 你要用的欄位，例如 ['AC_POWER', 'DC_VOLTAGE', ...]
-    num_features = len(feature_cols)
-    label_col = 'label'
-
-    dataset = InverterTimeSeriesDataset(
-        dataframe=processed_df,
-        feature_cols=feature_cols,
-        label_col=label_col,
-        window_size=30,
-        stride=1
-    )
-
-    train_loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=2)
-
-    model = Model(
-        num_features=num_features,
-        cnn_out_channels=32,
-        lstm_hidden_size=64,
-        lstm_layers=1,
-        dropout=0.3
-    )
-    
-    train_loop(
-        model=model,
-        train_loader=train_loader,
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        optimizer=torch.optim.Adam(model.parameters(), lr=0.001),
-        criterion=torch.nn.BCELoss(),
-        num_epochs=10,
-        log_interval=10
-    )
