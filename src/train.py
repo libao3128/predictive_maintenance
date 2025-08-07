@@ -83,6 +83,7 @@ def test_loop(model,
     total_loss = 0
     correct = 0
     total = 0
+    trues = []
     predictions = []
 
     with torch.no_grad():
@@ -94,6 +95,7 @@ def test_loop(model,
             total_loss += loss.item()
 
             pred = output>0.5  # 二分類預測
+            trues.append(y_test.cpu().numpy())
             predictions.append(pred.cpu().numpy())
             correct += (pred == y_test).sum().item()
             total += y_test.size(0)
@@ -101,4 +103,4 @@ def test_loop(model,
     avg_test_loss = total_loss / len(test_loader)
     accuracy = correct / total
     print(f"🔍 Test Loss: {avg_test_loss:.4f} | Accuracy: {accuracy:.2%}")
-    return np.concatenate(predictions)
+    return np.concatenate(trues), np.concatenate(predictions)
