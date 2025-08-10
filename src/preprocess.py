@@ -95,6 +95,12 @@ def prepare_dataset(inverter_df: pd.DataFrame,
     return labeled_df
 
 
+def exclude_periods_from_data(df, exclude_periods):
+    inverter_data = df.copy()
+    for start, end in exclude_periods:
+        inverter_data = inverter_data[~((inverter_data['event_local_time'].dt.floor('D') >= start) & (inverter_data['event_local_time'].dt.floor('D') <= end))]
+    return inverter_data
+
 def train_test_split_on_time(df: pd.DataFrame, test_size: float = 0.2, time_col: str = 'event_local_time') -> tuple:
     """
     Split the DataFrame into training and testing sets based on time.
