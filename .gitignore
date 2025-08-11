@@ -5,3 +5,4 @@ outdated_files/
 dashboard/
 *pyc
 visualization/
+model/local/
