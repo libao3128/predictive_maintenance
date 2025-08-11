@@ -25,9 +25,9 @@ def train_loop(model,
         save_path = time.strftime('model/%m%d_%H%M/', time.localtime())
     os.makedirs(save_path, exist_ok=True)
     
-    if os.path.exists(save_path+'training_log.csv'):
-        log = pd.read_csv(save_path+'training_log.csv')
-        cur_epoch = log['epoch'].max() + 1
+    if os.path.exists(save_path+'/training_log.csv'):
+        log = pd.read_csv(save_path+'/training_log.csv')
+        cur_epoch = int(log['epoch'].max() + 1)
         print(f"Resuming training from epoch {cur_epoch}")
     else:
         log = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'accuracy', 'time'])
