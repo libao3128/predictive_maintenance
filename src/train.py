@@ -85,12 +85,12 @@ def train_loop(model,
                     total += y_val.size(0)
 
             avg_val_loss = val_loss / len(val_loader)
+            accuracy = correct / total
+            print(f"✅ Validation Loss: {avg_val_loss:.4f} | Accuracy: {accuracy:.2%}")
             if avg_val_loss < min_val_loss:
                 min_val_loss = avg_val_loss
                 torch.save(model.state_dict(), f'{save_path}/best_model.pth')
                 print(f"Best model saved at epoch {epoch} with loss {avg_val_loss:.4f}")
-            accuracy = correct / total
-            print(f"✅ Validation Loss: {avg_val_loss:.4f} | Accuracy: {accuracy:.2%}")
 
         # scheduler step if used
         if scheduler is not None:
