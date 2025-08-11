@@ -28,7 +28,7 @@ class CNNLSTMModel(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(32, 1),
-            nn.Sigmoid()  # Output: 機率值 (0~1)
+            #nn.Sigmoid()  # Output: 機率值 (0~1)
         )
 
     def forward(self, x):

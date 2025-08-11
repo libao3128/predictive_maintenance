@@ -28,12 +28,12 @@ def train_loop(model,
     if os.path.exists(save_path+'/training_log.csv'):
         log = pd.read_csv(save_path+'/training_log.csv')
         cur_epoch = int(log['epoch'].max() + 1)
+        min_val_loss = log['val_loss'].min()
         print(f"Resuming training from epoch {cur_epoch}")
     else:
         log = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'accuracy', 'time'])
         cur_epoch = 1
-    
-    min_val_loss = float('inf')
+        min_val_loss = float('inf')
 
     for epoch in range(cur_epoch, cur_epoch + num_epochs):
         start_time = time.time()
@@ -80,7 +80,7 @@ def train_loop(model,
                     output = model(X_val).squeeze()
                     val_loss += criterion(output, y_val).item()
 
-                    pred = output > 0.5
+                    pred = torch.sigmoid(output) > 0.5
                     correct += (pred == y_val).sum().item()
                     total += y_val.size(0)
 
@@ -106,6 +106,7 @@ def train_loop(model,
     
 def test_loop(model,
             test_loader: DataLoader,
+            best_threshold=0.5,
             device='cuda',
             criterion=None):
     """
@@ -126,12 +127,12 @@ def test_loop(model,
         for X_test, y_test in test_loader:
             X_test, y_test = X_test.to(device), y_test.to(device).float()
             output = model(X_test).squeeze()
-            outputs.append(output.cpu().numpy())
+            outputs.append(torch.sigmoid(output).cpu().numpy())
 
             loss = criterion(output, y_test)
             total_loss += loss.item()
 
-            pred = output>0.5  # 二分類預測
+            pred = torch.sigmoid(output) > best_threshold  # 二分類預測
             trues.append(y_test.cpu().numpy())
             predictions.append(pred.cpu().numpy())
             correct += (pred == y_test).sum().item()
