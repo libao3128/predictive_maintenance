@@ -12,13 +12,18 @@ def visualize_hourly_mean_values(inverter_data, failure_sessions, feature_cols, 
     - feature_cols: List of feature column names to visualize.
     """
 
-
+    
     for device in inverter_data['device_name'].unique():
         single_inverter_data = inverter_data[inverter_data['device_name'] == device][['event_local_time', 'device_name'] + feature_cols]
         single_inverter_data['hour'] = single_inverter_data['event_local_time'].dt.floor('H')
         hourly_inverter_data = single_inverter_data.groupby('hour').mean(numeric_only=True).reset_index()
         fig = px.line(hourly_inverter_data, x='hour', y=feature_cols, title=f'Hourly Mean Values of Features for {device}')
+        
+        start_time, end_time = single_inverter_data['event_local_time'].min(), single_inverter_data['event_local_time'].max()
         for id, row in failure_sessions[failure_sessions['device_name'] == device].iterrows():
+            if (row['end_time'] < start_time) or (row['start_time'] > end_time):
+                #print(f"Warning: Failure session {id} for device {device} is out of bounds of the data range.")
+                continue
             fig.add_vrect(
                 x0=row['start_time'], x1=row['end_time'],
                 fillcolor="red", opacity=0.5,
