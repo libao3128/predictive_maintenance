@@ -1,6 +1,6 @@
 import os
 from glob import glob
-
+from typing import List
 import numpy as np
 import pandas as pd
 
@@ -113,3 +113,73 @@ def train_test_split_on_time(df: pd.DataFrame, test_size: float = 0.2, time_col:
     print(f"Train set size: {len(train_df)} Train set time range: {train_df['event_local_time'].min()} to {train_df['event_local_time'].max()}")
     print(f"Test set size: {len(test_df)} Test set time range: {test_df['event_local_time'].min()} to {test_df['event_local_time'].max()}")
     return train_df, test_df
+
+def missing_value_imputation(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    time_col: str = "event_local_time",
+    device_col: str = "device_name",
+    short_gap_limit: int = 6,   # 5 分鐘資料 -> 6 筆 ≈ 30 分鐘內用插值
+    long_fill_value: float = 0.0,
+    add_missing_mask: bool = True,
+) -> pd.DataFrame:
+    """
+    針對多裝置時間序列做缺失補值：
+      1) 先產生 per-step 缺失 mask（可選）
+      2) 每個裝置內，以時間排序後對 feature 做「時間型插值」(limit=short_gap_limit)
+      3) 尚未補到的長缺失以指定值（預設 0）補齊
+
+    參數：
+      - df: 原始 DataFrame，需包含 time_col 與 device_col
+      - feature_cols: 要補值的數值欄位
+      - time_col: 時間欄位名稱（需可轉為 datetime）
+      - device_col: 裝置欄位名稱
+      - short_gap_limit: 連續缺失筆數在此上限以內使用插值
+      - long_fill_value: 插值後仍為 NaN 的長缺失以此值補
+      - add_missing_mask: 是否為每個 feature 產生 *_missing 的 0/1 mask 欄位
+
+    回傳：
+      - 完成補值與（可選）新增 mask 的 DataFrame
+    """
+    imputed_df = df.copy()
+
+    # 確保時間欄為 datetime
+    imputed_df[time_col] = pd.to_datetime(imputed_df[time_col], errors="coerce")
+
+    # 需要的欄位存在性檢查
+    missing_cols = [c for c in [time_col, device_col] + feature_cols if c not in imputed_df.columns]
+    if missing_cols:
+        raise KeyError(f"Columns not found in df: {missing_cols}")
+
+    for device, device_data in imputed_df.groupby(device_col, sort=False):
+        # 複製避免 SettingWithCopy
+        block = device_data.loc[:, [time_col, device_col] + feature_cols].copy()
+        # 記住原始索引以便放回
+        block["_orig_idx"] = block.index
+
+        # 產生 per-step 缺失 mask（基於原始缺失）
+        if add_missing_mask:
+            for col in feature_cols:
+                imputed_df.loc[block["_orig_idx"], f"{col}_missing"] = block[col].isna().astype(int)
+
+        # 依時間排序並以時間為索引做 time-based interpolate
+        block = block.sort_values(time_col)
+        block = block.set_index(time_col)
+
+        # 僅對目標特徵做處理
+        # 短缺失：時間插值（雙向皆可，避免前段或尾段全 NaN 無法補）
+        block[feature_cols] = block[feature_cols].interpolate(
+            method="time", limit=short_gap_limit
+        ).interpolate(method="time", limit_direction="both")
+
+        # 長缺失：仍為 NaN 的以指定值補齊
+        block[feature_cols] = block[feature_cols].fillna(long_fill_value)
+
+        # 還原索引與順序
+        block = block.reset_index()
+        block = block.set_index("_orig_idx").sort_index()
+
+        # 寫回 imputed_df（僅覆蓋目標特徵欄）
+        imputed_df.loc[block.index, feature_cols] = block[feature_cols].values
+
+    return imputed_df
