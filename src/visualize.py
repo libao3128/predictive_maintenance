@@ -40,3 +40,11 @@ def visualize_hourly_mean_values(inverter_data, failure_sessions, feature_cols, 
         os.makedirs(f'{folder_path}/{title}', exist_ok=True)
         fig.write_html(f'{folder_path}/{title}/{device}.html')
     print(f"Visualization saved at {folder_path}/{title}/*.html")
+    
+def visualize_failure_timeline(failure_sessions):
+    fig = px.timeline(failure_sessions, x_start="start_time", x_end="end_time", y="device_name")
+    fig.update_yaxes(autorange="reversed") # otherwise tasks are listed from the bottom up
+    fig.update_layout(title='Failure Sessions Timeline', xaxis_title='Time', yaxis_title='Device Name')
+    fig.update_traces(marker=dict(color='LightSkyBlue', line=dict(color='RoyalBlue', width=2)))
+    fig.update_layout(showlegend=False)
+    fig.show()
