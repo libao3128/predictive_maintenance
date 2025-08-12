@@ -5,6 +5,10 @@ import os
 import pandas as pd
 from sklearn.metrics import average_precision_score, precision_recall_curve
 import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import roc_auc_score, roc_curve
 
 def train_loop(model,
                train_loader: DataLoader,
@@ -138,7 +142,7 @@ def test_loop(model,
     predictions = []
 
     with torch.no_grad():
-        for X_test, y_test in test_loader:
+        for X_test, y_test in tqdm(test_loader, desc="Testing"):
             X_test, y_test = X_test.to(device), y_test.to(device).float()
             output = model(X_test).squeeze()
             outputs.append(torch.sigmoid(output).cpu().numpy())
@@ -156,3 +160,27 @@ def test_loop(model,
     accuracy = correct / total
     print(f"🔍 Test Loss: {avg_test_loss:.4f} | Accuracy: {accuracy:.2%}")
     return np.concatenate(trues), np.concatenate(predictions), np.concatenate(outputs)
+
+def generate_report(trues, predictions, outputs):
+    """
+    評估模型性能，計算 AUC-PR 和其他指標
+    """
+    print(classification_report(trues, predictions , target_names=['Normal', 'Failure']))
+    print(confusion_matrix(trues, predictions ))
+    roc_auc = roc_auc_score(trues, outputs)
+    print(f"ROC AUC: {roc_auc:.4f}")
+    curve = roc_curve(trues, outputs)
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(curve[0], curve[1], label='ROC Curve')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+
+def evaluate_model(model,
+            test_loader: DataLoader,
+            best_threshold=0.5,
+            device='cuda',
+            criterion=None):
+    trues, predictions, outputs = test_loop(model, test_loader, best_threshold, device, criterion)
+    generate_report(trues, predictions, outputs)
