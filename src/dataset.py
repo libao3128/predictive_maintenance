@@ -164,19 +164,29 @@ class NegativeInverterTimeSeriesDataset(InverterTimeSeriesDataset):
         
 def combine_dataset(datasets):
     """
-    Combine multiple InverterTimeSeriesDataset instances into one.
+    Combine multiple InverterTimeSeriesDataset instances into one, optimized for memory usage.
     """
-    combined_X = []
-    combined_y = []
-    
     for dataset in datasets:
         if not isinstance(dataset, InverterTimeSeriesDataset):
             raise ValueError("All items in datasets must be instances of InverterTimeSeriesDataset.")
-        combined_X.append(dataset.X)
-        combined_y.append(dataset.y)
-    
-    combined_X = torch.cat(combined_X, dim=0)
-    combined_y = torch.cat(combined_y, dim=0)
 
+    # Use list to avoid creating large intermediate tensors
+    combined_X = []
+    combined_y = []
+    for ds in datasets:
+        # Convert to numpy for efficient concatenation if needed
+        if isinstance(ds.X, torch.Tensor):
+            combined_X.append(ds.X.cpu().numpy())
+        else:
+            combined_X.append(np.array(ds.X))
+        if isinstance(ds.y, torch.Tensor):
+            combined_y.append(ds.y.cpu().numpy())
+        else:
+            combined_y.append(np.array(ds.y))
+
+    combined_X = np.concatenate(combined_X, axis=0)
+    combined_y = np.concatenate(combined_y, axis=0)
+
+    # Only convert to tensor once at the end
     new_dataset = InverterTimeSeriesDataset.from_X_y(combined_X, combined_y)
     return new_dataset
