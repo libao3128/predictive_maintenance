@@ -3,6 +3,8 @@ from torch.utils.data import DataLoader
 import time
 import os
 import pandas as pd
+from sklearn.metrics import average_precision_score, precision_recall_curve
+import numpy as np
 
 def train_loop(model,
                train_loader: DataLoader,
@@ -31,7 +33,7 @@ def train_loop(model,
         min_val_loss = log['val_loss'].min()
         print(f"Resuming training from epoch {cur_epoch}")
     else:
-        log = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'accuracy', 'time'])
+        log = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'aucpr', 'accuracy', 'time'])
         cur_epoch = 1
         min_val_loss = float('inf')
 
@@ -72,21 +74,33 @@ def train_loop(model,
             val_loss = 0
             correct = 0
             total = 0
+            y_true_val, y_score_val = [], []
 
             with torch.no_grad():
                 for X_val, y_val in val_loader:
                     X_val = X_val.to(device, non_blocking=True)  # 建議加 non_blocking=True
-                    y_val = y_val.to(device, non_blocking=True)
+                    y_val = y_val.to(device, non_blocking=True).float()
                     output = model(X_val).squeeze()
                     val_loss += criterion(output, y_val).item()
+
+                    # 收集真實標籤和預測分數用於 AUC-PR 計算
+                    y_true_val.append(y_val.detach().cpu().numpy())
+                    y_score_val.append(torch.sigmoid(output).detach().cpu().numpy())
 
                     pred = torch.sigmoid(output) > 0.5
                     correct += (pred == y_val).sum().item()
                     total += y_val.size(0)
 
+            # 計算驗證指標
             avg_val_loss = val_loss / len(val_loader)
             accuracy = correct / total
-            print(f"✅ Validation Loss: {avg_val_loss:.4f} | Accuracy: {accuracy:.2%}")
+            
+            # 計算 AUC-PR
+            y_true_val = np.concatenate(y_true_val)
+            y_score_val = np.concatenate(y_score_val)
+            aucpr = average_precision_score(y_true_val, y_score_val)
+            
+            print(f"✅ Validation Loss: {avg_val_loss:.4f} | Accuracy: {accuracy:.2%} | AUC-PR: {aucpr:.4f}")
             if avg_val_loss < min_val_loss:
                 min_val_loss = avg_val_loss
                 torch.save(model.state_dict(), f'{save_path}/best_model.pth')
@@ -96,7 +110,7 @@ def train_loop(model,
         if scheduler is not None:
             scheduler.step()
 
-        log.loc[len(log)] = [epoch, avg_train_loss, avg_val_loss if val_loader else None, accuracy if val_loader else None, end_time - start_time]
+        log.loc[len(log)] = [epoch, avg_train_loss, avg_val_loss if val_loader else None, aucpr if val_loader else None, accuracy if val_loader else None, end_time - start_time]
 
     log.to_csv(f'{save_path}/training_log.csv', index=False)
     torch.save(model.state_dict(), f'{save_path}/epoch_{epoch}.pth')
