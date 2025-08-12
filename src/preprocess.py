@@ -279,15 +279,23 @@ def downsample_inverter_raw(
     print(f"Downsampling {len(df)} rows using following method: ")
     print(f"{pd.DataFrame(agg.items(), columns=['Column', 'Aggregation'])}")
     
+    
+    rs = pd.DataFrame()
     # ==== 分裝置下採樣 ====
-    rs = (
-        df
-        .sort_values([device_col, time_col])
-        .groupby(device_col)
-        .resample(freq, on=time_col)
-        .agg(agg)
-        .reset_index()
-    )
+    for device, group in df.groupby(device_col, sort=False):
+        # 依時間排序
+        group = group.sort_values(time_col)
+
+        # 依時間與裝置分組，並做 resample 聚合
+        group = group.set_index(time_col)
+        resampled = group.groupby(device_col).resample(freq).agg(agg).reset_index()
+
+        # 寫回原始 DataFrame
+        if device_col not in resampled.columns:
+            resampled[device_col] = device
+        rs = pd.concat([rs, resampled], ignore_index=True)
+
+    rs.reset_index(drop=True, inplace=True)
 
     # optional: 丟掉該時間窗所有「連續量」皆 NaN 的列（通常代表窗內沒資料）
     if drop_empty_bins and continuous_mean_cols:
