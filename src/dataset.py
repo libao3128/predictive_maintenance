@@ -6,7 +6,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
 
 class InverterTimeSeriesDataset(Dataset):
-    def __init__(self, dataframe, feature_cols, label_col='label', window_size=30, stride=1, under_sample=False):
+    def __init__(self, dataframe, feature_cols, label_col='label', window_size=30, stride=1):
         self.feature_cols = feature_cols
         self.label_col = label_col
         self.window_size = window_size
@@ -46,9 +46,7 @@ class InverterTimeSeriesDataset(Dataset):
                 start = end + 1
                 
             self._add_windows_from_block(values[start:], labels[start:])  # 最後一段
-        
-        if under_sample:
-            self.under_sample()
+
         self.X = torch.tensor(np.stack(self.X), dtype=torch.float32)
         self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
 
@@ -66,12 +64,15 @@ class InverterTimeSeriesDataset(Dataset):
             self.X.append(x)
             self.y.append(y)
             
-    def under_sample(self, target_class=1):
+    def under_sample(self, sampling_strategy='auto'):
         from imblearn.under_sampling import RandomUnderSampler
-        rus = RandomUnderSampler(random_state=0)
+        rus = RandomUnderSampler(sampling_strategy=sampling_strategy, random_state=0)
         X_ind, self.y = rus.fit_resample(np.array(range(len(self.X))).reshape(-1, 1), self.y)
         X_ind = X_ind.flatten()
         self.X = np.array(self.X)[X_ind]
+        
+        self.X =  torch.tensor(np.stack(self.X), dtype=torch.float32)
+        self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
 
     def __len__(self):
         return len(self.X)
