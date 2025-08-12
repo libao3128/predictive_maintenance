@@ -170,8 +170,8 @@ def visualize_failure_timeline(
         opacity=0.98,
         hovertemplate=(
             "<b>%{y}</b><br>" +
-            "Start: %{customdata[0]|%Y-%m-%d %H:%M}<br>" +
-            "End: %{customdata[1]|%Y-%m-%d %H:%M}<br>" +
+            "Start: %{customdata[1]|%Y-%m-%d %H:%M}<br>" +
+            "End: %{customdata[2]|%Y-%m-%d %H:%M}<br>" +
             "Duration (hrs): %{customdata[3]:.2f}<br>"
         )
     )
