@@ -5,38 +5,93 @@ import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
-def visualize_hourly_mean_values(inverter_data, failure_sessions, feature_cols,
-                                 folder_path='visualization', title='Hourly Mean Values of Features'):
+def _plot_device_series(g: pd.DataFrame,
+                        feature_cols,
+                        device: str,
+                        fs_by_dev: dict,
+                        outdir: str,
+                        title: str,
+                        ts_col: str = "ts"):
+    """單一裝置繪圖與輸出 HTML。"""
+    fig = px.line(g, x=ts_col, y=feature_cols, title=f'{device} {title}')
+    start_time, end_time = g[ts_col].min(), g[ts_col].max()
+
+    for _, row in fs_by_dev.get(device, pd.DataFrame()).iterrows():
+        if (row['end_time'] < start_time) or (row['start_time'] > end_time):
+            continue
+        color = "gray" if row.get('maintenance', False) else "red"
+        session_id = row.get('session_id', '')
+        annotation_text = f"Session: {session_id}" if session_id else "Failure Session"
+        if row.get('maintenance', False):
+            annotation_text += " (Maintenance)"
+        fig.add_vrect(
+            x0=row['start_time'],
+            x1=row['end_time'],
+            fillcolor=color,
+            opacity=0.5,
+            annotation_text=annotation_text,
+            annotation_position="top left"
+        )
+
+    fig.update_layout(
+        xaxis_title='Time',
+        yaxis_title='Mean Value',
+        legend_title='Features',
+        title_x=0.5
+    )
+    fig.write_html(f'{outdir}/{device}.html', full_html=False, include_plotlyjs='cdn')
 
 
-    # 1) 全量預先計算
-    df = inverter_data[['event_local_time', 'device_name'] + feature_cols].copy()
-    df['hour'] = df['event_local_time'].dt.floor('H')
-    hourly_all = (df.groupby(['device_name','hour'], as_index=False)[feature_cols].mean())
-    fs_by_dev = {d: g for d, g in failure_sessions.groupby('device_name')}
+def visualize_mean_values(inverter_data: pd.DataFrame,
+                          failure_sessions: pd.DataFrame,
+                          feature_cols,
+                          folder_path: str = 'visualization',
+                          title: str = 'Mean Values of Features',
+                          time_col: str = 'event_local_time',
+                          device_col: str = 'device_name',
+                          freq: str | None = 'H',
+                          workers: int = 8) -> str:
+    """
+    通用可視化：
+      - freq=None => 直接以原始時間點繪圖 (相當於原本的 visualize_raw_mean_values)
+      - freq='H'  => 依小時聚合平均 (相當於原本的 visualize_hourly_mean_values)
+      - 也可傳入其他 pandas offset alias，如 '30T', 'D' 等
 
-    outdir = f'{folder_path}/{title}'
+    回傳輸出資料夾路徑。
+    """
+    # 預處理與可選聚合
+    cols = [time_col, device_col] + list(feature_cols)
+    df = inverter_data[cols].copy()
+    df.rename(columns={time_col: 'ts'}, inplace=True)
+
+    if freq is not None:
+        df['ts'] = pd.to_datetime(df['ts']).dt.floor(freq)
+        # 依裝置 + ts 聚合平均（只聚合數值欄）
+        df = (df.groupby([device_col, 'ts'], as_index=False)[feature_cols]
+                .mean(numeric_only=True))
+
+    # 依裝置切分失效/維修區段
+    fs_by_dev = {d: g for d, g in failure_sessions.groupby(device_col)}
+
+    # 輸出路徑
+    freq_tag = 'raw' if freq is None else freq
+    outdir = f'{folder_path}/{title} ({freq_tag})'
     os.makedirs(outdir, exist_ok=True)
 
-    def plot_and_save(device):
-        h = hourly_all[hourly_all['device_name']==device].sort_values('hour')
-        fig = px.line(h, x='hour', y=feature_cols, title=f'{device}{title}')
-        start_time, end_time = h['hour'].min(), h['hour'].max()
-        for _, row in fs_by_dev.get(device, pd.DataFrame()).iterrows():
-            if (row['end_time'] < start_time) or (row['start_time'] > end_time):
-                continue
-            fig.add_vrect(x0=row['start_time'], x1=row['end_time'],
-                          fillcolor="red", opacity=0.5,
-                          annotation_text="Failure Session", annotation_position="top left")
-        fig.update_layout(xaxis_title='Hour', yaxis_title='Mean Value',
-                          legend_title='Features', title_x=0.5)
-        fig.write_html(f'{outdir}/{device}.html', full_html=False, include_plotlyjs='cdn')
+    # 多執行緒輸出
+    devices = df[device_col].unique().tolist()
 
-    devices = hourly_all['device_name'].unique()
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        list(tqdm(ex.map(plot_and_save, devices), total=len(devices), desc="Writing HTML"))
+    def _worker(device: str):
+        g = df[df[device_col] == device].sort_values('ts')
+        if g.empty:
+            return
+        _plot_device_series(g, feature_cols, device, fs_by_dev, outdir, title, ts_col='ts')
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        list(tqdm(ex.map(_worker, devices), total=len(devices), desc="Writing HTML"))
 
     print(f"Visualization saved at {outdir}/*.html")
+    return outdir
 
     
 def visualize_failure_timeline(
