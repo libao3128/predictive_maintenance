@@ -25,6 +25,13 @@ def load_failure_sessions(csv_path: str, min_days: int = 3) -> pd.DataFrame:
     df['duration'] = pd.to_timedelta(df['duration'])
     df['start_time'] = pd.to_datetime(df['start_time'])
     df['end_time'] = pd.to_datetime(df['end_time'])
+
+    
+    if 'maintenance' in df.columns:
+        df['maintenance'] = df['maintenance'].fillna(False).astype(bool)
+    else:
+        df['maintenance'] = False
+
     df = df[df['duration'] > pd.Timedelta(days=min_days)]
     print(f"Kept {len(df)} sessions longer than {min_days} days")
     return df
@@ -32,50 +39,55 @@ def load_failure_sessions(csv_path: str, min_days: int = 3) -> pd.DataFrame:
 
 def label_pre_failure_and_drop(inv_grp, sess_grp, pre_days=5):
     """
-    inv_grp: DataFrame for a single device, sorted by event_local_time
-    sess_grp: DataFrame of failure sessions for that device, sorted by start_time
-    returns inv_grp filtered (real failures dropped) with new column 'failure_label'
+    - Pre-failure labels (1) come only from NON-maintenance sessions.
+    - Rows inside ANY session window (maintenance or not) are dropped.
     """
-    # 1) arrays of times
+    inv_grp = inv_grp.sort_values('event_local_time')
     et = inv_grp['event_local_time'].values.astype('datetime64[ns]')
-    starts = sess_grp['start_time'].values.astype('datetime64[ns]')
-    ends   = sess_grp['end_time'].values.astype('datetime64[ns]')
-    is_maintenance = sess_grp['maintenance'].values
+
+    if sess_grp.empty:
+        out = inv_grp.copy()
+        out['label'] = 0
+        return out
+
+    sess_grp = sess_grp.sort_values('start_time')
+    starts_all = sess_grp['start_time'].values.astype('datetime64[ns]')
+    ends_all   = sess_grp['end_time'].values.astype('datetime64[ns]')
+    maint      = sess_grp['maintenance'].astype(bool).values if 'maintenance' in sess_grp.columns \
+                 else np.zeros(len(sess_grp), dtype=bool)
+
+    # ---- Labeling: only NON-maintenance sessions create pre-failure windows
+    nm_mask   = ~maint
+    starts_nm = starts_all[nm_mask]
 
     n = len(et)
     labels = np.zeros(n, dtype=np.int8)
 
-    if len(starts)>0:
-        # 2) for each event, find index of next session start > event
-        idx_next = np.searchsorted(starts, et, side='right')
+    if starts_nm.size > 0:
+        idx_next_nm   = np.searchsorted(starts_nm, et, side='right')        # next non-maint start idx
+        valid_next_nm = idx_next_nm < starts_nm.size
+        idxn          = idx_next_nm[valid_next_nm]
+        window_starts = starts_nm - np.timedelta64(pre_days, 'D')
 
-        # 3) pre-failure: event in [start-5d, start)
-        window_starts = starts - np.timedelta64(pre_days, 'D')
-        valid_next = idx_next < len(starts)
-        idxn = idx_next[valid_next]
-        mask_pre = np.zeros(n, bool)
-        mask_pre[valid_next] = (
-            (et[valid_next] >= window_starts[idxn]) &
-            (et[valid_next] <  starts[idxn])
+        mask_pre = np.zeros(n, dtype=bool)
+        mask_pre[valid_next_nm] = (
+            (et[valid_next_nm] >= window_starts[idxn]) &
+            (et[valid_next_nm] <  starts_nm[idxn])
         )
         labels[mask_pre] = 1
 
-        # 4) drop real failures: find most recent session start ≤ event
-        idx_prev = idx_next - 1
-        valid_prev = idx_prev >= 0
-        idxp = idx_prev[valid_prev]
-        mask_fail = np.zeros(n, bool)
-        mask_fail[valid_prev] = (et[valid_prev] <= ends[idxp])
+    # ---- Dropping: remove rows that lie in ANY session (maintenance or not)
+    idx_next_all   = np.searchsorted(starts_all, et, side='right')
+    idx_prev_all   = idx_next_all - 1
+    valid_prev_all = idx_prev_all >= 0
 
-        # 5) apply drop
-        keep = ~mask_fail
-        inv_grp = inv_grp.iloc[keep].copy()
-        labels = labels[keep]
-    else:
-        # no sessions: everyone is label 0, keep all
-        inv_grp = inv_grp.copy()
+    mask_in_session = np.zeros(n, dtype=bool)
+    # inside if previous session has started and hasn't ended yet
+    mask_in_session[valid_prev_all] = (et[valid_prev_all] <= ends_all[idx_prev_all[valid_prev_all]])
 
-    inv_grp['label'] = labels
+    keep = ~mask_in_session
+    inv_grp = inv_grp.iloc[keep].copy()
+    inv_grp['label'] = labels[keep]
     return inv_grp
 
 
