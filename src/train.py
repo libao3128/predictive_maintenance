@@ -49,16 +49,19 @@ def train_loop(model,
         for batch_idx, (X, y) in enumerate(train_loader):
             #print(X.shape, y.shape)  # Debugging shape
             X = X.to(device, non_blocking=True)  # 建議加 non_blocking=True
-            y = y.to(device, non_blocking=True)
-            optimizer.zero_grad()
+            y = y.float().to(device, non_blocking=True)
+            optimizer.zero_grad(set_to_none=True)
             output = model(X)
-            output = output.squeeze()  # [B] if needed
+            output = output.squeeze(-1)  # [B] if needed
 
             loss = criterion(output, y)
-            loss.backward()
-            optimizer.step()
-
             total_loss += loss.item()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()  
+            # scheduler step if used
+            if scheduler is not None:
+                scheduler.step()
 
             if batch_idx % log_interval == 0:
                 print(f"[Epoch {epoch}/{cur_epoch + num_epochs}] Step {batch_idx}/{len(train_loader)} - Loss: {loss.item():.4f}")
@@ -67,10 +70,6 @@ def train_loop(model,
         print(f"🔁 Epoch {epoch} finished. Avg Train Loss: {avg_train_loss:.4f}")
         end_time = time.time()
 
-        if (epoch) % save_interval == 0:
-            torch.save(model.state_dict(), f'{save_path}/epoch_{epoch}.pth')
-            log.to_csv(f'{save_path}/training_log.csv', index=False)
-            #print(f"Model saved at epoch {epoch}")
 
         # ===== 驗證階段 =====
         if val_loader is not None:
@@ -190,11 +189,11 @@ def train_loop(model,
                     log['ap_uplift'] = np.nan
                 log.loc[len(log)] = [epoch, avg_train_loss, np.nan, np.nan, np.nan, end_time - start_time]
 
-        # scheduler step if used
-        if scheduler is not None:
-            scheduler.step()
-
-
+        if (epoch) % save_interval == 0:
+            torch.save(model.state_dict(), f'{save_path}/epoch_{epoch}.pth')
+            log.to_csv(f'{save_path}/training_log.csv', index=False)
+            #print(f"Model saved at epoch {epoch}")
+            
     log.to_csv(f'{save_path}/training_log.csv', index=False)
     torch.save(model.state_dict(), f'{save_path}/epoch_{epoch}.pth')
     print("🏁 Training completed.")
