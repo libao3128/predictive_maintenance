@@ -274,6 +274,11 @@ def downsample_inverter_raw(
     # Setpoint/HW_VERSION → last
     for c in last_pref_cols:
         agg[c] = "last"
+        
+    # missing feature
+    for c in df.columns:
+        if c.endswith('_missing'):
+            agg[c] = 'mean'
 
     # 累積量 → 依參數
     if energy_as == "delta":
