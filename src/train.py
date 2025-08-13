@@ -61,7 +61,7 @@ def train_loop(model,
             total_loss += loss.item()
 
             if batch_idx % log_interval == 0:
-                print(f"[Epoch {epoch}/{num_epochs}] Step {batch_idx}/{len(train_loader)} - Loss: {loss.item():.4f}")
+                print(f"[Epoch {epoch}/{cur_epoch + num_epochs}] Step {batch_idx}/{len(train_loader)} - Loss: {loss.item():.4f}")
 
         avg_train_loss = total_loss / len(train_loader)
         print(f"🔁 Epoch {epoch} finished. Avg Train Loss: {avg_train_loss:.4f}")
@@ -72,56 +72,135 @@ def train_loop(model,
             log.to_csv(f'{save_path}/training_log.csv', index=False)
             #print(f"Model saved at epoch {epoch}")
 
-        # 驗證階段
+        # ===== 驗證階段 =====
         if val_loader is not None:
             model.eval()
-            val_loss = 0
+            val_loss = 0.0
             correct = 0
             total = 0
-            y_true_val, y_score_val = [], []
+            y_true_val_list, y_score_val_list = [], []
 
-            with torch.no_grad():
+            # 你可以自訂多個 K；例如抓最高分的 50/100/200 筆
+            topk_list = [50, 100, 200]
+
+            with torch.inference_mode():
                 for X_val, y_val in val_loader:
-                    X_val = X_val.to(device, non_blocking=True)  # 建議加 non_blocking=True
-                    y_val = y_val.to(device, non_blocking=True).float()
-                    output = model(X_val).squeeze()
-                    val_loss += criterion(output, y_val).item()
+                    X_val = X_val.to(device, non_blocking=True)
+                    y_val = y_val.float().view(-1).to(device, non_blocking=True)
 
-                    # 收集真實標籤和預測分數用於 AUC-PR 計算
-                    y_true_val.append(y_val.detach().cpu().numpy())
-                    y_score_val.append(torch.sigmoid(output).detach().cpu().numpy())
+                    # 若資料含 -1（in-session），先過濾掉
+                    valid_mask = (y_val == 0) | (y_val == 1)
+                    if valid_mask.sum() == 0:
+                        continue
+                    
+                    X_val = X_val[valid_mask]
+                    y_val = y_val[valid_mask]
 
-                    pred = torch.sigmoid(output) > 0.5
-                    correct += (pred == y_val).sum().item()
+                    logits = model(X_val).view(-1)
+                    val_loss += criterion(logits, y_val).item()
+
+                    probs = torch.sigmoid(logits)  # [B]
+
+                    # 收集到 CPU 做整體指標
+                    y_true_val_list.append(y_val.detach().cpu().numpy().astype(np.int32))
+                    y_score_val_list.append(probs.detach().cpu().numpy())
+
+                    # Accuracy（僅供參考）
+                    pred = (probs > 0.5).int()
+                    correct += (pred == y_val.int()).sum().item()
                     total += y_val.size(0)
 
-            # 計算驗證指標
-            avg_val_loss = val_loss / len(val_loader)
-            accuracy = correct / total
-            
-            # 計算 AUC-PR
-            y_true_val = np.concatenate(y_true_val)
-            y_score_val = np.concatenate(y_score_val)
-            aucpr = average_precision_score(y_true_val, y_score_val)
-            
-            print(f"✅ Validation Loss: {avg_val_loss:.4f} | Accuracy: {accuracy:.2%} | AUC-PR: {aucpr:.4f}")
-            if avg_val_loss < min_val_loss:
-                min_val_loss = avg_val_loss
-                torch.save(model.state_dict(), f'{save_path}/best_model.pth')
-                print(f"Best model saved at epoch {epoch} with loss {avg_val_loss:.4f}")
+            if total > 0:
+                avg_val_loss = val_loss / len(val_loader)
+                accuracy = correct / total
+
+                y_true_val = np.concatenate(y_true_val_list).reshape(-1)
+                y_score_val = np.concatenate(y_score_val_list).reshape(-1)
+
+                # ---- 主指標：AUCPR 與 baseline ----
+                pos_rate = float((y_true_val == 1).mean())  # baseline（random classifier）
+                if pos_rate == 0.0:
+                    aucpr = float('nan')
+                    ap_uplift = float('nan')
+                else:
+                    aucpr = average_precision_score(y_true_val, y_score_val)
+                    ap_uplift = aucpr / pos_rate
+
+                # ---- Top-K 指標 ----
+                # 先依分數排序（由高到低）
+                order = np.argsort(-y_score_val)
+                y_true_sorted = y_true_val[order]
+
+                total_pos = int((y_true_val == 1).sum())
+                topk_metrics = {}
+                for k in topk_list:
+                    k_eff = min(k, len(y_true_sorted))
+                    if k_eff == 0:
+                        p_at_k = float('nan')
+                        r_at_k = float('nan')
+                    else:
+                        tp_at_k = int(y_true_sorted[:k_eff].sum())
+                        p_at_k = tp_at_k / k_eff
+                        r_at_k = (tp_at_k / total_pos) if total_pos > 0 else float('nan')
+                    topk_metrics[f'prec@{k}'] = p_at_k
+                    topk_metrics[f'rec@{k}']  = r_at_k
+
+                # ---- 印出摘要 ----
+                k_str = " | ".join([f"P@{k}:{topk_metrics[f'prec@{k}']:.3f} R@{k}:{topk_metrics[f'rec@{k}']:.3f}" for k in topk_list])
+                print(
+                    f"✅ Validation Loss: {avg_val_loss:.4f} | Acc: {accuracy:.2%} | "
+                    f"AUC-PR: {aucpr:.4f} | baseline: {pos_rate:.4f} | uplift: {ap_uplift:.2f}x | {k_str}"
+                )
+
+                # ---- 儲存 best（仍以 val_loss 為準；你也可改成以 aucpr 為準）----
+                if avg_val_loss < min_val_loss:
+                    min_val_loss = avg_val_loss
+                    torch.save(model.state_dict(), f'{save_path}/best_model.pth')
+                    print(f"Best model saved at epoch {epoch} with loss {avg_val_loss:.4f}")
+
+                # ---- 將新指標寫入 log ----
+                # 動態補上新欄位（若第一次寫入）
+                required_cols = ['epoch', 'train_loss', 'val_loss', 'aucpr', 'accuracy', 'baseline_pos_rate', 'ap_uplift', 'time']
+                for k in topk_list:
+                    required_cols += [f'prec@{k}', f'rec@{k}']
+                for col in required_cols:
+                    if col not in log.columns:
+                        log[col] = np.nan  # 先補欄位
+
+                row = {
+                    'epoch': epoch,
+                    'train_loss': avg_train_loss,
+                    'val_loss': avg_val_loss,
+                    'aucpr': aucpr,
+                    'accuracy': accuracy,
+                    'baseline_pos_rate': pos_rate,
+                    'ap_uplift': ap_uplift,
+                    'time': end_time - start_time
+                }
+                for k in topk_list:
+                    row[f'prec@{k}'] = topk_metrics[f'prec@{k}']
+                    row[f'rec@{k}']  = topk_metrics[f'rec@{k}']
+                log.loc[len(log)] = row
+
+            else:
+                print("⚠️ No valid samples in validation after filtering labels.")
+                # 也把空值寫進 log 以保持 epoch 對齊
+                if 'baseline_pos_rate' not in log.columns:
+                    log['baseline_pos_rate'] = np.nan
+                    log['ap_uplift'] = np.nan
+                log.loc[len(log)] = [epoch, avg_train_loss, np.nan, np.nan, np.nan, end_time - start_time]
 
         # scheduler step if used
         if scheduler is not None:
             scheduler.step()
 
-        log.loc[len(log)] = [epoch, avg_train_loss, avg_val_loss if val_loader else None, aucpr if val_loader else None, accuracy if val_loader else None, end_time - start_time]
 
     log.to_csv(f'{save_path}/training_log.csv', index=False)
     torch.save(model.state_dict(), f'{save_path}/epoch_{epoch}.pth')
     print("🏁 Training completed.")
     
     return log
-    
+
 def test_loop(model,
             test_loader: DataLoader,
             best_threshold=0.5,
