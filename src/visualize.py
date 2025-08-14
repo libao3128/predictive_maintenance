@@ -4,6 +4,8 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_recall_curve
 
 def _plot_device_series(g: pd.DataFrame,
                         feature_cols,
@@ -229,3 +231,26 @@ def visualize_failure_timeline(
     )
 
     fig.show()
+    
+def visualize_log(log):
+    plt.plot(log['train_loss'], label='train_loss')
+    plt.plot(log['val_loss'], label='val_loss')
+    plt.plot(log['aucpr'], label='aucpr')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+def plot_outputs_distribution(outputs, title):
+    plt.hist(outputs, bins=50, range=(0, 1))
+    plt.xlabel("Output Value")
+    plt.ylabel("Frequency")
+    plt.title(title)
+    plt.show()
+
+def plot_precision_recall(trues, prob):
+    precision, recall, thresholds = precision_recall_curve(trues, prob)
+    plt.plot(recall, precision, marker='.')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.show()

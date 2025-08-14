@@ -9,6 +9,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.metrics import roc_auc_score, roc_curve
+from src.metrics import cal_topK_metrics
 
 def train_loop(model,
                train_loader: DataLoader,
@@ -75,9 +76,6 @@ def train_loop(model,
         if val_loader is not None:
             y_true_val, y_score_val, avg_val_loss = test_loop(model, val_loader, device, criterion)
 
-            # 你可以自訂多個 K；例如抓最高分的 50/100/200 筆
-            topk_list = [50, 100, 200]
-
             # ---- 主指標：AUCPR 與 baseline ----
             pos_rate = float((y_true_val == 1).mean())  # baseline（random classifier）
             if pos_rate == 0.0:
@@ -86,25 +84,14 @@ def train_loop(model,
             else:
                 aucpr = average_precision_score(y_true_val, y_score_val)
                 ap_uplift = aucpr / pos_rate
+
             # ---- Top-K 指標 ----
-            # 先依分數排序（由高到低）
-            order = np.argsort(-y_score_val)
-            y_true_sorted = y_true_val[order]
-            total_pos = int((y_true_val == 1).sum())
-            topk_metrics = {}
-            for k in topk_list:
-                k_eff = min(k, len(y_true_sorted))
-                if k_eff == 0:
-                    p_at_k = float('nan')
-                    r_at_k = float('nan')
-                else:
-                    tp_at_k = int(y_true_sorted[:k_eff].sum())
-                    p_at_k = tp_at_k / k_eff
-                    r_at_k = (tp_at_k / total_pos) if total_pos > 0 else float('nan')
-                topk_metrics[f'prec@{k}'] = p_at_k
-                topk_metrics[f'rec@{k}']  = r_at_k
+            # 你可以自訂多個 K；例如抓最高分的 50/100/200 筆
+            topk_list = [50, 100, 200]
+            top_k_metrics = cal_topK_metrics(y_score_val, y_true_val, top_k=topk_list)
+            
             # ---- 印出摘要 ----
-            k_str = " | ".join([f"P@{k}:{topk_metrics[f'prec@{k}']:.3f} R@{k}:{topk_metrics[f'rec@{k}']:.3f}" for k in topk_list])
+            k_str = " | ".join([f"P@{k}:{top_k_metrics[f'prec@{k}']:.3f} R@{k}:{top_k_metrics[f'rec@{k}']:.3f}" for k in topk_list])
             print(
                 f"✅ avg_loss: {avg_val_loss:.4f} | AUC-PR: {aucpr:.4f} | baseline: {pos_rate:.4f} | uplift: {ap_uplift:.2f}x | {k_str}"
             )
@@ -131,8 +118,8 @@ def train_loop(model,
                 'time': end_time - start_time
             }
             for k in topk_list:
-                row[f'prec@{k}'] = topk_metrics[f'prec@{k}']
-                row[f'rec@{k}']  = topk_metrics[f'rec@{k}']
+                row[f'prec@{k}'] = top_k_metrics[f'prec@{k}']
+                row[f'rec@{k}']  = top_k_metrics[f'rec@{k}']
             log.loc[len(log)] = row
 
         if (epoch) % save_interval == 0:
@@ -182,6 +169,17 @@ def test_loop(model,
         avg_test_loss = total_loss / len(test_loader)
 
     return np.concatenate(trues), np.concatenate(scores), avg_test_loss
+
+def get_logits_and_labels(model, dataloader, device='cuda'):
+    model.eval()
+    all_logits, all_labels = [], []
+    with torch.no_grad():
+        for X, y in dataloader:
+            X, y = X.to(device), y.to(device)
+            logits = model(X)  # shape: (batch, 1)
+            all_logits.append(logits.cpu().numpy().ravel())
+            all_labels.append(y.cpu().numpy().ravel())
+    return np.concatenate(all_logits), np.concatenate(all_labels)
 
 def generate_report(trues, predictions, outputs):
     """

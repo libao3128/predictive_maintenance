@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class CNNLSTMModel(nn.Module):
     def __init__(self, num_features, cnn_out_channels=32, lstm_hidden_size=64, lstm_layers=1, dropout=0.3):
@@ -40,3 +41,18 @@ class CNNLSTMModel(nn.Module):
         last_time_step = lstm_out[:, -1, :]  # 取最後時間步的輸出
         out = self.classifier(last_time_step)  # → (batch_size, 1)
         return out
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2.0, reduction='mean'):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+    def forward(self, logits, targets):
+        # logits: (B,1) raw; targets: (B,1) {0,1}
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+        p = torch.sigmoid(logits).clamp(1e-6, 1-1e-6)
+        pt = p*targets + (1-p)*(1-targets)
+        w = self.alpha*targets + (1-self.alpha)*(1-targets)
+        loss = w * (1-pt).pow(self.gamma) * bce
+        return loss.mean() if self.reduction=='mean' else loss.sum()
