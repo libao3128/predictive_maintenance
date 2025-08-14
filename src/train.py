@@ -29,7 +29,7 @@ def train_loop(model,
     model = model.to(device)
     print(f"Model moved to {device}")
     if save_path is None:
-        save_path = time.strftime('model/%m%d_%H%M/', time.localtime())
+        save_path = time.strftime('model/local/%m%d_%H%M/', time.localtime())
     os.makedirs(save_path, exist_ok=True)
     
     if os.path.exists(save_path+'/training_log.csv'):
