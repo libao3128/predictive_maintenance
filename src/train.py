@@ -151,29 +151,37 @@ def test_loop(model,
             device='cuda',
             criterion=None):
     """
-    測試迴圈，用於評估模型在測試集上的表現
+    Runs inference on the test_loader and computes average loss and prediction scores.
+
+    Args:
+        model (torch.nn.Module): The trained model to evaluate.
+        test_loader (DataLoader): DataLoader for the test/validation set.
+        device (str, optional): Device to run the model on. Defaults to 'cuda'.
+        criterion (callable, optional): Loss function. Defaults to None.
+
+    Returns:
+        tuple: (np.ndarray of true labels, np.ndarray of predicted scores, float average loss)
     """
-    import numpy as np
     model = model.to(device)
     model.eval()
-    
-    total_loss = 0
-    trues = []
-    scores= []
+
+    total_loss = 0.0
+    trues, scores = [], []
+    avg_test_loss = None
 
     with torch.inference_mode():
         for X_test, y_test in tqdm(test_loader, desc="Testing"):
             X_test, y_test = X_test.to(device), y_test.to(device).float()
-            trues.append(y_test.cpu().numpy())
-            output = model(X_test).squeeze()
-            scores.append(torch.sigmoid(output).cpu().numpy())
+            logits = model(X_test).squeeze()
             if criterion is not None:
-                loss = criterion(output, y_test)
-                total_loss += loss.item()
+                total_loss += criterion(logits, y_test).item()
+            trues.append(y_test.cpu().numpy())
+            scores.append(torch.sigmoid(logits).cpu().numpy())
+
     if criterion is not None:
         avg_test_loss = total_loss / len(test_loader)
-        #print(f"🔍 Test Loss: {avg_test_loss:.4f}")
-    return np.concatenate(trues), np.concatenate(scores), avg_test_loss if criterion is not None else None
+
+    return np.concatenate(trues), np.concatenate(scores), avg_test_loss
 
 def generate_report(trues, predictions, outputs):
     """
