@@ -1,8 +1,8 @@
 import os
 from glob import glob
-from typing import List
 import numpy as np
 import pandas as pd
+from typing import Dict, List
 
 
 
@@ -25,6 +25,13 @@ def load_failure_sessions(csv_path: str, min_days: int = 3) -> pd.DataFrame:
     df['duration'] = pd.to_timedelta(df['duration'])
     df['start_time'] = pd.to_datetime(df['start_time'])
     df['end_time'] = pd.to_datetime(df['end_time'])
+
+    
+    if 'maintenance' in df.columns:
+        df['maintenance'] = df['maintenance'].fillna(False).astype(bool)
+    else:
+        df['maintenance'] = False
+
     df = df[df['duration'] > pd.Timedelta(days=min_days)]
     print(f"Kept {len(df)} sessions longer than {min_days} days")
     return df
@@ -32,49 +39,55 @@ def load_failure_sessions(csv_path: str, min_days: int = 3) -> pd.DataFrame:
 
 def label_pre_failure_and_drop(inv_grp, sess_grp, pre_days=5):
     """
-    inv_grp: DataFrame for a single device, sorted by event_local_time
-    sess_grp: DataFrame of failure sessions for that device, sorted by start_time
-    returns inv_grp filtered (real failures dropped) with new column 'failure_label'
+    - Pre-failure labels (1) come only from NON-maintenance sessions.
+    - Rows inside ANY session window (maintenance or not) are dropped.
     """
-    # 1) arrays of times
+    inv_grp = inv_grp.sort_values('event_local_time')
     et = inv_grp['event_local_time'].values.astype('datetime64[ns]')
-    starts = sess_grp['start_time'].values.astype('datetime64[ns]')
-    ends   = sess_grp['end_time'].values.astype('datetime64[ns]')
+
+    if sess_grp.empty:
+        out = inv_grp.copy()
+        out['label'] = 0
+        return out
+
+    sess_grp = sess_grp.sort_values('start_time')
+    starts_all = sess_grp['start_time'].values.astype('datetime64[ns]')
+    ends_all   = sess_grp['end_time'].values.astype('datetime64[ns]')
+    maint      = sess_grp['maintenance'].astype(bool).values if 'maintenance' in sess_grp.columns \
+                 else np.zeros(len(sess_grp), dtype=bool)
+
+    # ---- Labeling: only NON-maintenance sessions create pre-failure windows
+    nm_mask   = ~maint
+    starts_nm = starts_all[nm_mask]
 
     n = len(et)
     labels = np.zeros(n, dtype=np.int8)
 
-    if len(starts)>0:
-        # 2) for each event, find index of next session start > event
-        idx_next = np.searchsorted(starts, et, side='right')
+    if starts_nm.size > 0:
+        idx_next_nm   = np.searchsorted(starts_nm, et, side='right')        # next non-maint start idx
+        valid_next_nm = idx_next_nm < starts_nm.size
+        idxn          = idx_next_nm[valid_next_nm]
+        window_starts = starts_nm - np.timedelta64(pre_days, 'D')
 
-        # 3) pre-failure: event in [start-5d, start)
-        window_starts = starts - np.timedelta64(pre_days, 'D')
-        valid_next = idx_next < len(starts)
-        idxn = idx_next[valid_next]
-        mask_pre = np.zeros(n, bool)
-        mask_pre[valid_next] = (
-            (et[valid_next] >= window_starts[idxn]) &
-            (et[valid_next] <  starts[idxn])
+        mask_pre = np.zeros(n, dtype=bool)
+        mask_pre[valid_next_nm] = (
+            (et[valid_next_nm] >= window_starts[idxn]) &
+            (et[valid_next_nm] <  starts_nm[idxn])
         )
         labels[mask_pre] = 1
 
-        # 4) drop real failures: find most recent session start ≤ event
-        idx_prev = idx_next - 1
-        valid_prev = idx_prev >= 0
-        idxp = idx_prev[valid_prev]
-        mask_fail = np.zeros(n, bool)
-        mask_fail[valid_prev] = (et[valid_prev] <= ends[idxp])
+    # ---- Dropping: remove rows that lie in ANY session (maintenance or not)
+    idx_next_all   = np.searchsorted(starts_all, et, side='right')
+    idx_prev_all   = idx_next_all - 1
+    valid_prev_all = idx_prev_all >= 0
 
-        # 5) apply drop
-        keep = ~mask_fail
-        inv_grp = inv_grp.iloc[keep].copy()
-        labels = labels[keep]
-    else:
-        # no sessions: everyone is label 0, keep all
-        inv_grp = inv_grp.copy()
+    mask_in_session = np.zeros(n, dtype=bool)
+    # inside if previous session has started and hasn't ended yet
+    mask_in_session[valid_prev_all] = (et[valid_prev_all] <= ends_all[idx_prev_all[valid_prev_all]])
 
-    inv_grp['label'] = labels
+    keep = ~mask_in_session
+    inv_grp = inv_grp.iloc[keep].copy()
+    inv_grp['label'] = labels[keep]
     return inv_grp
 
 
@@ -99,6 +112,8 @@ def exclude_periods_from_data(df, exclude_periods):
     inverter_data = df.copy()
     for start, end in exclude_periods:
         inverter_data = inverter_data[~((inverter_data['event_local_time'].dt.floor('D') >= start) & (inverter_data['event_local_time'].dt.floor('D') <= end))]
+    inverter_data = inverter_data.reset_index(drop=True)
+    print(f"Excluded {len(exclude_periods)} periods, remaining data size: {inverter_data.shape[0]}")
     return inverter_data
 
 def train_test_split_on_time(df: pd.DataFrame, test_size: float = 0.2, time_col: str = 'event_local_time') -> tuple:
@@ -168,9 +183,10 @@ def missing_value_imputation(
 
         # 僅對目標特徵做處理
         # 短缺失：時間插值（雙向皆可，避免前段或尾段全 NaN 無法補）
-        block[feature_cols] = block[feature_cols].interpolate(
-            method="time", limit=short_gap_limit
-        ).interpolate(method="time", limit_direction="both")
+        if short_gap_limit > 0:
+            block[feature_cols] = block[feature_cols].interpolate(
+                method="time", limit=short_gap_limit, limit_direction="forward"
+            )
 
         # 長缺失：仍為 NaN 的以指定值補齊
         block[feature_cols] = block[feature_cols].fillna(long_fill_value)
@@ -183,3 +199,129 @@ def missing_value_imputation(
         imputed_df.loc[block.index, feature_cols] = block[feature_cols].values
 
     return imputed_df
+
+def downsample_inverter_raw(
+    df: pd.DataFrame,
+    freq: str = "30T",
+    time_col: str = "event_local_time",
+    device_col: str = "device_name",
+    energy_as: str = "delta",   # "delta" | "last" | "mean"
+    drop_empty_bins: bool = True
+) -> pd.DataFrame:
+    """
+    依欄位語意對原始 5-min 資料做下採樣（不重造衍生特徵）。
+    規則：
+      - 連續量 → mean
+      - 布林/連線/心跳/狀態/WORD → max
+      - 累積量(ENERGY_*, VARH_*) → delta(預設) / last / mean
+      - Setpoint/HW_VERSION → last
+    """
+
+    df = df.copy()
+    df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
+    if df[time_col].isna().any():
+        raise ValueError(f"{time_col} 有無效時間，請先清理。")
+
+    # ==== 欄位分類（依名稱規則）====
+    cols: List[str] = [c for c in df.columns if c not in (time_col, device_col)]
+
+    # 可能的「累積量」欄位（energy, varh）
+    cumulative_cols = [c for c in cols if any([
+        c.startswith("metric.ENERGY_") and c.endswith(".MEASURED"),
+        c.startswith("metric.VARH_")   and c.endswith(".MEASURED"),
+        c == "metric.ENERGY_DELIVERED.MEASURED",
+        c == "metric.ENERGY_RECEIVED.MEASURED",
+        c == "metric.VARH_DELIVERED.MEASURED"
+    ])]
+
+    # 狀態/錯誤碼/WORD/布林旗標類（含 COMM_LINK、HEARTBEAT）
+    state_like_cols = [c for c in cols if (
+        c.startswith("metric.STATUS_") or
+        c.endswith("WORD.MEASURED") or
+        c in ["metric.COMM_LINK.MEASURED", "metric.HEARTBEAT.MEASURED"]
+    )]
+
+    # Setpoint / 版本
+    last_pref_cols = [c for c in cols if (
+        c.endswith("_SETPOINT.MEASURED") or
+        c == "metric.HW_VERSION.MEASURED"
+    )]
+
+    # 其餘視為連續量（電壓/電流/功率/頻率/溫度...）
+    assigned = set(cumulative_cols) | set(state_like_cols) | set(last_pref_cols)
+    continuous_mean_cols = [c for c in cols if c not in assigned]
+
+    # ==== 聚合函式定義 ====
+    def agg_cumulative(s: pd.Series) -> float:
+        """區間增量：last - first，處理重置/回捲為 >=0"""
+        if s.dropna().empty:
+            return float("nan")
+        first = s.iloc[0]
+        last  = s.iloc[-1]
+        return max(float(last) - float(first), 0.0)
+
+    # 聚合規則字典
+    agg: Dict[str, object] = {}
+
+    # 連續量 → mean
+    for c in continuous_mean_cols:
+        agg[c] = "mean"
+
+    # 狀態/WORD/布林 → max
+    for c in state_like_cols:
+        agg[c] = "max"
+
+    # Setpoint/HW_VERSION → last
+    for c in last_pref_cols:
+        agg[c] = "last"
+        
+    # missing feature
+    for c in df.columns:
+        if c.endswith('_missing'):
+            agg[c] = 'mean'
+
+    # 累積量 → 依參數
+    if energy_as == "delta":
+        for c in cumulative_cols:
+            agg[c] = agg_cumulative
+    elif energy_as == "last":
+        for c in cumulative_cols:
+            agg[c] = "last"
+    elif energy_as == "mean":
+        for c in cumulative_cols:
+            agg[c] = "mean"
+    else:
+        raise ValueError("energy_as must be one of {'delta','last','mean'}")
+    
+    print(f"Downsampling {len(df)} rows using following method: ")
+    print(f"{pd.DataFrame(agg.items(), columns=['Column', 'Aggregation'])}")
+    
+    
+    rs = pd.DataFrame()
+    # ==== 分裝置下採樣 ====
+    for device, group in df.groupby(device_col, sort=False):
+        # 依時間排序
+        group = group.sort_values(time_col)
+
+        # 依時間與裝置分組，並做 resample 聚合
+        group = group.set_index(time_col)
+        resampled = group.groupby(device_col).resample(freq).agg(agg).reset_index()
+
+        # 寫回原始 DataFrame
+        if device_col not in resampled.columns:
+            resampled[device_col] = device
+        rs = pd.concat([rs, resampled], ignore_index=True)
+
+    rs.reset_index(drop=True, inplace=True)
+
+    # optional: 丟掉該時間窗所有「連續量」皆 NaN 的列（通常代表窗內沒資料）
+    if drop_empty_bins and continuous_mean_cols:
+        mask_all_nan = rs[continuous_mean_cols].isna().all(axis=1)
+        rs = rs.loc[~mask_all_nan].copy()
+
+    # 欄位順序（盡量貼近原始）
+    ordered = [time_col, device_col] + continuous_mean_cols + state_like_cols + last_pref_cols + cumulative_cols
+    ordered = [c for c in ordered if c in rs.columns]
+    rs = rs.loc[:, ordered].sort_values([device_col, time_col])
+
+    return rs
