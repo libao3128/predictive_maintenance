@@ -1,35 +1,120 @@
-# UCLA Capstone Project: Solar Device Metrics Analysis
+# Predictive Maintenance for Solar Plant Inverters
 
-## Project Overview
-[TODO]
+## 📌 Overview
+This project is part of the UCLA MEng Capstone Program, in collaboration with **MN8 Energy (a Goldman Sachs-backed renewable energy company)**.  
+We are building a **machine learning–driven predictive maintenance system** for solar plant inverters, designed to detect potential failures several days before they occur.
 
-## Sample Dataset Information
-- **Source**: Solar inverter metrics data
-- **Size**: 3.3+ million records
-- **Time Period**: 2025-06-25 07:00 to 2025-06-27 06:55
-- **Content**: Device performance metrics including AC power, energy output, voltage, temperature, and other operational parameters
+Key features:
+- End-to-end ML pipeline on **Microsoft Azure** for data ingestion, preprocessing, model training, and deployment
+- Time-series analysis on **3M+ sensor records** across multiple inverters
+- Deep learning models (CNN-LSTM) for failure prediction
+- Early warning system that can issue alarms **5 days before failure events** with ~77% recall (ongoing improvement)
+- System under deployment in a **California solar plant** for field evaluation and dynamic tuning
 
-## Prerequisites
+---
 
-### Environment Setup
-- Python 3.8 or higher
-- Jupyter Notebook or JupyterLab
-- Required libraries: pandas, numpy, matplotlib, seaborn, datetime
-
-### Dataset Setup
-1. **Download the dataset** from one of the following sources:
-   - [OneDrive Link](https://1drv.ms/u/s!Ag4DJ6hMoaoWx7BBOiGJucz0ZohHWQ?e=J1cJpK)
-   - Attachment sent from Rafael on June 28, 2025
-2. **Extract the dataset**:
-   - Unzip the downloaded file
-   - Place the extracted files in the `device_metrics/` directory
-   - Ensure `device_metrics.csv` is located at `device_metrics/device_metrics.csv`
-
-## Project Structure
+## 📂 Repository Structure
 ```
-capstone/
-├── README.md                           # This file
-├── device_metrics/                     # Dataset directory
-│   └── device_metrics.csv             # Main dataset (after extraction)
-├── device_metrics_analysis.ipynb      # Main analysis notebook
+predictive_maintenance/
+│── azure/                        # Azure ML Studio integration scripts
+│── dataset/                      # Dataset preparation and evaluation notebooks
+│── model/                        # Model definitions and saved models
+│── plot/                         # Plotting and visualization utilities
+│── src/                          # Core source code (pipeline, utilities)
+│── .gitignore                    # Git ignore rules
+│── README.md                     # Project introduction (this file)
+│── evaluate_model.ipynb          # Notebook for evaluating trained models
+│── failure_sessions_w_maintenance.csv  # Failure sessions dataset with maintenance info
+│── label_maintainance_session.ipynb    # Notebook for labeling maintenance sessions
+│── train_model_local.ipynb       # Local training notebook
 ```
+
+---
+
+## ⚙️ Tech Stack
+- **Languages:** Python (NumPy, Pandas, PyTorch, Scikit-learn), SQL  
+- **Cloud & Infrastructure:** Microsoft Azure (Data Factory, ML Studio, SQL Database, Blob Storage)  
+- **Machine Learning:** CNN-LSTM
+- **Visualization:** Plotly, Matplotlib, Mermaid / Draw.io for diagrams  
+- **Documentation:** LaTeX, Markdown, GitHub
+
+---
+
+## 🚀 Setup & Usage
+### 1. Clone the repository
+```bash
+git clone https://github.com/libao3128/predictive_maintenance.git
+cd predictive_maintenance
+```
+
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+or using Conda:
+```bash
+conda env create -f environment.yml
+conda activate predictive_maintenance
+```
+
+### 3. Prerequisites
+The **raw dataset is not public**. Please contact our team members or MN8 Energy to request access.  
+Refer to the main page `README.md` for contact details.
+
+Expected files in this directory:
+```
+dataset/inverter_data/*.parquet   # Processed inverter data from Microsoft Azure Data Factory
+```
+
+### 4. Label Failure Sessions
+Run `label_maintainance_session.ipynb`. This will generate two CSV files in the `dataset/` folder:
+```
+dataset/failure_sessions.csv              # Raw labeled sessions (unfiltered)
+dataset/failure_sessions_w_maintenance.csv # Filtered failure sessions
+```
+
+### 5. Data Preprocessing
+Run `data_pipeline.ipynb` to preprocess the raw inverter data. Ensure the following path exists:
+```
+dataset/inverter_data/*.parquet
+```
+After preprocessing, you will obtain:
+```
+dataset/train_data.csv
+dataset/val_data.csv
+dataset/test_data.csv
+```
+
+### 6. Train Model
+Run `train_model_local.ipynb` to execute the ML pipeline and train the predictive model.  
+The trained model checkpoints will be saved under the `model/` folder.
+
+### 7. Evaluate Results
+Run `evaluate_model.ipynb` to evaluate the trained model and review performance metrics.
+
+
+---
+
+## 👥 Team
+- **Li-Chun Huang**, leo900527@gmail.com
+- **Grace Cheng**
+- **Portia Huang**
+- **Yen-Yun Kuo**
+
+Advisors:
+- **Ramon Millan**, MN8 Energy  
+- **Camilo Lombo**, MN8 Energy  
+- **Bruce Huang**, UCLA Samueli School of Engineering
+- **Joey Lao**, UCLA Samueli School of Engineering
+
+---
+
+## 🤝 Contributing
+We welcome contributions via pull requests.  
+Please follow our coding style guidelines and include unit tests for any new feature.  
+
+1. Fork the repo  
+2. Create a feature branch (`git checkout -b feature/my-feature`)  
+3. Commit your changes (`git commit -m "Add my feature"`)  
+4. Push to the branch (`git push origin feature/my-feature`)  
+5. Open a Pull Request  
