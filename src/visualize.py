@@ -240,12 +240,16 @@ def visualize_log(log):
     plt.ylabel('Loss')
     plt.legend()
     
-def plot_outputs_distribution(outputs, title):
-    plt.hist(outputs, bins=50, range=(0, 1))
-    plt.xlabel("Output Value")
-    plt.ylabel("Frequency")
-    plt.title(title)
-    plt.show()
+def plot_outputs_distribution(probs_calibrated, labels, title="Validation Outputs Distribution"):
+    df = pd.DataFrame(
+        {
+            "scores": probs_calibrated,
+            "labels": labels
+        }
+    )
+    fig = px.histogram(df, x="scores", color="labels", barmode="stack", histnorm="probability", title=title)
+    fig.update_xaxes(range=[0, 1])
+    fig.show()
 
 def plot_precision_recall(trues, prob):
     precision, recall, thresholds = precision_recall_curve(trues, prob)
