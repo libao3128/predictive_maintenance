@@ -1,14 +1,12 @@
 device_metrics.zip
 device_metrics/device_metrics.csv
 data/
+dataset/inverter_data/
 dataset/*.csv
 outdated_files/
 dashboard/
 *pyc
 visualization/
 model/local/
-.vscode/
-.DS_Store
-
 .vscode/
 .DS_Store
