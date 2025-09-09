@@ -14,7 +14,7 @@ def _plot_device_series(g: pd.DataFrame,
                         outdir: str,
                         title: str,
                         ts_col: str = "ts"):
-    """單一裝置繪圖與輸出 HTML。"""
+    """Single device plotting and HTML output."""
     fig = px.line(g, x=ts_col, y=feature_cols, title=f'{device} {title}')
     start_time, end_time = g[ts_col].min(), g[ts_col].max()
 
@@ -54,33 +54,33 @@ def visualize_mean_values(inverter_data: pd.DataFrame,
                           freq: str | None = 'H',
                           workers: int = 8) -> str:
     """
-    通用可視化：
-      - freq=None => 直接以原始時間點繪圖 (相當於原本的 visualize_raw_mean_values)
-      - freq='H'  => 依小時聚合平均 (相當於原本的 visualize_hourly_mean_values)
-      - 也可傳入其他 pandas offset alias，如 '30T', 'D' 等
+    General visualization:
+      - freq=None => plot directly with original time points (equivalent to original visualize_raw_mean_values)
+      - freq='H'  => aggregate by hour (equivalent to original visualize_hourly_mean_values)
+      - Can also pass other pandas offset aliases like '30T', 'D', etc.
 
-    回傳輸出資料夾路徑。
+    Returns output folder path.
     """
-    # 預處理與可選聚合
+    # Preprocessing and optional aggregation
     cols = [time_col, device_col] + list(feature_cols)
     df = inverter_data[cols].copy()
     df.rename(columns={time_col: 'ts'}, inplace=True)
 
     if freq is not None:
         df['ts'] = pd.to_datetime(df['ts']).dt.floor(freq)
-        # 依裝置 + ts 聚合平均（只聚合數值欄）
+        # Aggregate by device + ts (only aggregate numerical columns)
         df = (df.groupby([device_col, 'ts'], as_index=False)[feature_cols]
                 .mean(numeric_only=True))
 
-    # 依裝置切分失效/維修區段
+    # Split failure/maintenance segments by device
     fs_by_dev = {d: g for d, g in failure_sessions.groupby(device_col)}
 
-    # 輸出路徑
+    # Output path
     freq_tag = 'raw' if freq is None else freq
     outdir = f'{folder_path}/{title} ({freq_tag})'
     os.makedirs(outdir, exist_ok=True)
 
-    # 多執行緒輸出
+    # Multi-threaded output
     devices = df[device_col].unique().tolist()
 
     def _worker(device: str):
@@ -106,30 +106,30 @@ def visualize_failure_timeline(
     title="Failure Sessions Timeline"
 ):
     """
-    需要欄位：
+    Required columns:
       start_time, end_time (datetime-like), device_name (str),
-      maintenance (bool), session_id (str/int 可選)
+      maintenance (bool), session_id (str/int optional)
     """
 
     df = failure_sessions.copy()
 
-    # --- 時間欄位正規化 ---
+    # --- Time column normalization ---
     for c in ["start_time", "end_time"]:
         if not np.issubdtype(df[c].dtype, np.datetime64):
             df[c] = pd.to_datetime(df[c], utc=True, errors="coerce")
     df = df.dropna(subset=["start_time", "end_time", "device_name"])
 
-    # --- 衍生欄位 ---
+    # --- Derived columns ---
     df["duration_hours"] = (df["end_time"] - df["start_time"]).dt.total_seconds() / 3600.0
     df["maintenance_label"] = np.where(df["maintenance"].astype(bool),
                                        "Planned (maintenance)",
                                        "Unplanned failure")
 
-    # 子集
+    # Subset
     if device_subset is not None:
         df = df[df["device_name"].isin(device_subset)]
 
-    # --- 排序 ---
+    # --- Sorting ---
     if order_by == "total_downtime":
         order = (df.groupby("device_name")["duration_hours"]
                    .sum()
@@ -143,8 +143,8 @@ def visualize_failure_timeline(
     else:  # name
         order = sorted(df["device_name"].unique())
 
-    # --- 視覺最小寬度（避免短事件看起來消失）---
-    # 視覺上把太短的區段填到 min_visible_hours，但 hover 仍顯示真實 duration
+    # --- Visual minimum width (avoid short events appearing to disappear) ---
+    # Visually pad segments that are too short to min_visible_hours, but hover still shows real duration
     min_delta = pd.to_timedelta(min_visible_hours, unit="h")
     df["x_start_vis"] = df["start_time"]
     df["x_end_vis"]   = df["end_time"]
@@ -152,12 +152,12 @@ def visualize_failure_timeline(
     df.loc[too_short, "x_end_vis"] = df.loc[too_short, "start_time"] + min_delta
     df["visual_padded"] = too_short
 
-    # --- 畫圖 ---
+    # --- Plotting ---
     height = max(420, int(height_per_device * len(order) + 140))
 
     color_map = {
-        "Planned (maintenance)": "#6b7280",  # 深灰 (比原本更有對比)
-        "Unplanned failure":     "#2563eb",  # 飽和藍
+        "Planned (maintenance)": "#6b7280",  # Dark gray (more contrast than original)
+        "Unplanned failure":     "#2563eb",  # Saturated blue
     }
 
     labels = {
@@ -190,7 +190,7 @@ def visualize_failure_timeline(
         title=title,
     )
 
-    # y 軸與版面
+    # y-axis and layout
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
         template="plotly_white",
@@ -200,7 +200,7 @@ def visualize_failure_timeline(
         margin=dict(l=70, r=30, t=60, b=40),
     )
 
-    # x 軸：grid + rangeselector + rangeslider
+    # x-axis: grid + rangeselector + rangeslider
     fig.update_xaxes(
         showgrid=True,
         rangeslider=dict(visible=True),
@@ -216,7 +216,7 @@ def visualize_failure_timeline(
         )
     )
 
-    # 長條外框與透明度
+    # Bar outline and transparency
     fig.update_traces(
         marker_line_color="rgba(30,30,60,0.55)",
         marker_line_width=1.5,

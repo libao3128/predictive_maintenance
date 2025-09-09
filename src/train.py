@@ -23,7 +23,7 @@ def train_loop(model,
                save_interval=1,
                save_path=None):
     """
-    通用 PyTorch 訓練迴圈，適用 CNN+LSTM 二分類模型
+    General PyTorch training loop for CNN+LSTM binary classification model
     """
 
     model = model.to(device)
@@ -49,7 +49,7 @@ def train_loop(model,
 
         for batch_idx, (X, y) in enumerate(train_loader):
             #print(X.shape, y.shape)  # Debugging shape
-            X = X.to(device, non_blocking=True)  # 建議加 non_blocking=True
+            X = X.to(device, non_blocking=True)  # Recommended to add non_blocking=True
             y = y.float().to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             output = model(X)
@@ -72,12 +72,12 @@ def train_loop(model,
         end_time = time.time()
 
 
-        # ===== 驗證階段 =====
+        # ===== Validation phase =====
         if val_loader is not None:
             y_true_val, y_score_val, avg_val_loss = test_loop(model, val_loader, device, criterion)
 
-            # ---- 主指標：AUCPR 與 baseline ----
-            pos_rate = float((y_true_val == 1).mean())  # baseline（random classifier）
+            # ---- Main metrics: AUCPR and baseline ----
+            pos_rate = float((y_true_val == 1).mean())  # baseline (random classifier)
             if pos_rate == 0.0:
                 aucpr = float('nan')
                 ap_uplift = float('nan')
@@ -85,23 +85,23 @@ def train_loop(model,
                 aucpr = average_precision_score(y_true_val, y_score_val)
                 ap_uplift = aucpr / pos_rate
 
-            # ---- Top-K 指標 ----
-            # 你可以自訂多個 K；例如抓最高分的 50/100/200 筆
+            # ---- Top-K metrics ----
+            # You can customize multiple K values; e.g., get top 50/100/200 scores
             topk_list = [50, 100, 200]
             top_k_metrics = cal_topK_metrics(y_score_val, y_true_val, top_k=topk_list)
             
-            # ---- 印出摘要 ----
+            # ---- Print summary ----
             k_str = " | ".join([f"P@{k}:{top_k_metrics[f'prec@{k}']:.3f} R@{k}:{top_k_metrics[f'rec@{k}']:.3f}" for k in topk_list])
             print(
                 f"✅ avg_loss: {avg_val_loss:.4f} | AUC-PR: {aucpr:.4f} | baseline: {pos_rate:.4f} | uplift: {ap_uplift:.2f}x | {k_str}"
             )
-            # ---- 儲存 best（仍以 val_loss 為準；你也可改成以 aucpr 為準）----
+            # ---- Save best (still based on val_loss; you can also change to aucpr) ----
             if aucpr > max_aucpr:
                 max_aucpr = aucpr
                 torch.save(model.state_dict(), f'{save_path}/best_model.pth')
                 print(f"Best model saved at epoch {epoch} with AUC-PR {aucpr:.4f}")
-            # ---- 將新指標寫入 log ----
-            # 動態補上新欄位（若第一次寫入）
+            # ---- Write new metrics to log ----
+            # Dynamically add new columns (if first time writing)
             required_cols = ['epoch', 'train_loss', 'val_loss', 'aucpr', 'accuracy', 'baseline_pos_rate', 'ap_uplift', 'time']
             for k in topk_list:
                 required_cols += [f'prec@{k}', f'rec@{k}']

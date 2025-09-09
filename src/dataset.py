@@ -13,7 +13,7 @@ class InverterTimeSeriesDataset(Dataset):
     @classmethod
     def from_dataframe(cls, dataframe, feature_cols, label_col='label', window_size=30, stride=1):
         """
-        從 DataFrame 建立資料集。
+        Create dataset from DataFrame.
         """
         instance = cls()
         instance.load_from_dataframe(dataframe, feature_cols, label_col, window_size, stride)
@@ -22,7 +22,7 @@ class InverterTimeSeriesDataset(Dataset):
     @classmethod
     def from_X_y(cls, X, y):
         """
-        從 X 和 y 建立資料集。
+        Create dataset from X and y.
         """
         instance = cls()
         instance.load_from_X_y(X, y)
@@ -30,7 +30,7 @@ class InverterTimeSeriesDataset(Dataset):
     
     def load_from_dataframe(self, dataframe, feature_cols, label_col='label', window_size=30, stride=1):
         """
-        重新載入資料集，適用於需要更改參數的情況。
+        Reload dataset, suitable for cases where parameters need to be changed.
         """
         self.feature_cols = feature_cols
         self.label_col = label_col
@@ -39,7 +39,7 @@ class InverterTimeSeriesDataset(Dataset):
         self.X = []
         self.y = []
                
-        # 預處理檢查
+        # Preprocessing checks
         dataframe = dataframe.sort_values(['device_name', 'event_local_time']).reset_index(drop=True)
         if dataframe.isnull().values.any():
             raise ValueError("DataFrame contains NaN values. Please clean the data before creating the dataset.")
@@ -48,29 +48,29 @@ class InverterTimeSeriesDataset(Dataset):
             if col not in dataframe.columns:
                 raise ValueError(f"Column '{col}' not found in the DataFrame.")
 
-        # 依 device 分開處理
+        # Process by device separately
         for device, group in tqdm(dataframe.groupby('device_name'), desc="Processing devices"):
             group = group.reset_index(drop=True)
             times = pd.to_datetime(group['event_local_time'])
             values = group[feature_cols].values  # shape: (T, F)
             labels = group[label_col].values     # shape: (T,)
 
-            # 嘗試找出該 device 的主要時間間隔
+            # Try to find the main time interval for this device
             time_deltas = times.diff().dt.total_seconds().dropna().round()
             if len(time_deltas) == 0:
                 continue
-            expected_delta = time_deltas.mode()[0]  # 最常見的時間差
+            expected_delta = time_deltas.mode()[0]  # Most common time difference
 
-            # 找出所有時間連續的區段
+            # Find all time-continuous segments
             good_indices = (time_deltas == expected_delta).astype(int).to_numpy()
-            # 第一筆視為連續開始
+            # First record is considered as continuous start
             runs = np.where(good_indices == 0)[0]
             start = 0
             for end in runs:
                 self._add_windows_from_block(values[start:end+1], labels[start:end+1])
                 start = end + 1
                 
-            self._add_windows_from_block(values[start:], labels[start:])  # 最後一段
+            self._add_windows_from_block(values[start:], labels[start:])  # Last segment
 
         self.X = torch.tensor(np.stack(self.X), dtype=torch.float32)
         self.y = torch.tensor(np.array(self.y), dtype=torch.float32)
@@ -103,7 +103,7 @@ class InverterTimeSeriesDataset(Dataset):
         windows_X = sliding_window_view(X_block, (self.window_size, X_block.shape[1]))[::self.stride, 0, :]
         windows_y = y_block[self.window_size - 1::self.stride]
 
-        # 過濾掉 label == -1 的
+        # Filter out records with label == -1
         for x, y in zip(windows_X, windows_y):
             if y == -1:
                 continue
@@ -137,9 +137,9 @@ class PositiveInverterTimeSeriesDataset(InverterTimeSeriesDataset):
         windows_X = sliding_window_view(X_block, (self.window_size, X_block.shape[1]))[::self.stride, 0, :]
         windows_y = y_block[self.window_size - 1::self.stride]
 
-        # 過濾掉 label == -1 的
+        # Filter out records with label == -1
         for x, y in zip(windows_X, windows_y):
-            if y == -1 or y == 0:  # 只保留 label == 1 的樣本
+            if y == -1 or y == 0:  # Only keep samples with label == 1
                 continue
             self.X.append(x)
             self.y.append(y)
@@ -155,9 +155,9 @@ class NegativeInverterTimeSeriesDataset(InverterTimeSeriesDataset):
         windows_X = sliding_window_view(X_block, (self.window_size, X_block.shape[1]))[::self.stride, 0, :]
         windows_y = y_block[self.window_size - 1::self.stride]
 
-        # 過濾掉 label == -1 的
+        # Filter out records with label == -1
         for x, y in zip(windows_X, windows_y):
-            if y == -1 or y == 1:  # 只保留 label ==  0 的樣本
+            if y == -1 or y == 1:  # Only keep samples with label == 0
                 continue
             self.X.append(x)
             self.y.append(y)

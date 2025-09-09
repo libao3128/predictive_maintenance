@@ -2,7 +2,7 @@ import numpy as np
 
 def cal_topK_metrics(logits, labels, top_k=(1, 5)):
     """
-    計算 Top-K 準確率
+    Calculate Top-K accuracy
     """
     order = np.argsort(-logits)
     y_true_sorted = labels[order]

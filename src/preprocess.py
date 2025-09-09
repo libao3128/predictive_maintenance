@@ -134,68 +134,68 @@ def missing_value_imputation(
     feature_cols: List[str],
     time_col: str = "event_local_time",
     device_col: str = "device_name",
-    short_gap_limit: int = 6,   # 5 分鐘資料 -> 6 筆 ≈ 30 分鐘內用插值
+    short_gap_limit: int = 6,   # 5-minute data -> 6 records ≈ 30 minutes for interpolation
     long_fill_value: float = 0.0,
     add_missing_mask: bool = True,
 ) -> pd.DataFrame:
     """
-    針對多裝置時間序列做缺失補值：
-      1) 先產生 per-step 缺失 mask（可選）
-      2) 每個裝置內，以時間排序後對 feature 做「時間型插值」(limit=short_gap_limit)
-      3) 尚未補到的長缺失以指定值（預設 0）補齊
+    Missing value imputation for multi-device time series:
+      1) First generate per-step missing mask (optional)
+      2) Within each device, sort by time and perform "time-based interpolation" on features (limit=short_gap_limit)
+      3) Fill remaining long gaps with specified value (default 0)
 
-    參數：
-      - df: 原始 DataFrame，需包含 time_col 與 device_col
-      - feature_cols: 要補值的數值欄位
-      - time_col: 時間欄位名稱（需可轉為 datetime）
-      - device_col: 裝置欄位名稱
-      - short_gap_limit: 連續缺失筆數在此上限以內使用插值
-      - long_fill_value: 插值後仍為 NaN 的長缺失以此值補
-      - add_missing_mask: 是否為每個 feature 產生 *_missing 的 0/1 mask 欄位
+    Parameters:
+      - df: Original DataFrame, must contain time_col and device_col
+      - feature_cols: Numerical columns to impute
+      - time_col: Time column name (must be convertible to datetime)
+      - device_col: Device column name
+      - short_gap_limit: Use interpolation for consecutive missing records within this limit
+      - long_fill_value: Fill long gaps that remain NaN after interpolation with this value
+      - add_missing_mask: Whether to generate 0/1 mask columns *_missing for each feature
 
-    回傳：
-      - 完成補值與（可選）新增 mask 的 DataFrame
+    Returns:
+      - DataFrame with completed imputation and (optionally) new mask columns
     """
     imputed_df = df.copy()
 
-    # 確保時間欄為 datetime
+    # Ensure time column is datetime
     imputed_df[time_col] = pd.to_datetime(imputed_df[time_col], errors="coerce")
 
-    # 需要的欄位存在性檢查
+    # Check existence of required columns
     missing_cols = [c for c in [time_col, device_col] + feature_cols if c not in imputed_df.columns]
     if missing_cols:
         raise KeyError(f"Columns not found in df: {missing_cols}")
 
     for device, device_data in imputed_df.groupby(device_col, sort=False):
-        # 複製避免 SettingWithCopy
+        # Copy to avoid SettingWithCopy
         block = device_data.loc[:, [time_col, device_col] + feature_cols].copy()
-        # 記住原始索引以便放回
+        # Remember original index for restoration
         block["_orig_idx"] = block.index
 
-        # 產生 per-step 缺失 mask（基於原始缺失）
+        # Generate per-step missing mask (based on original missing values)
         if add_missing_mask:
             for col in feature_cols:
                 imputed_df.loc[block["_orig_idx"], f"{col}_missing"] = block[col].isna().astype(int)
 
-        # 依時間排序並以時間為索引做 time-based interpolate
+        # Sort by time and use time as index for time-based interpolation
         block = block.sort_values(time_col)
         block = block.set_index(time_col)
 
-        # 僅對目標特徵做處理
-        # 短缺失：時間插值（雙向皆可，避免前段或尾段全 NaN 無法補）
+        # Only process target features
+        # Short gaps: time interpolation (bidirectional, avoid front/end segments with all NaN)
         if short_gap_limit > 0:
             block[feature_cols] = block[feature_cols].interpolate(
                 method="time", limit=short_gap_limit, limit_direction="forward"
             )
 
-        # 長缺失：仍為 NaN 的以指定值補齊
+        # Long gaps: fill remaining NaN with specified value
         block[feature_cols] = block[feature_cols].fillna(long_fill_value)
 
-        # 還原索引與順序
+        # Restore index and order
         block = block.reset_index()
         block = block.set_index("_orig_idx").sort_index()
 
-        # 寫回 imputed_df（僅覆蓋目標特徵欄）
+        # Write back to imputed_df (only overwrite target feature columns)
         imputed_df.loc[block.index, feature_cols] = block[feature_cols].values
 
     return imputed_df
@@ -209,23 +209,23 @@ def downsample_inverter_raw(
     drop_empty_bins: bool = True
 ) -> pd.DataFrame:
     """
-    依欄位語意對原始 5-min 資料做下採樣（不重造衍生特徵）。
-    規則：
-      - 連續量 → mean
-      - 布林/連線/心跳/狀態/WORD → max
-      - 累積量(ENERGY_*, VARH_*) → delta(預設) / last / mean
+    Downsample original 5-min data based on column semantics (without recreating derived features).
+    Rules:
+      - Continuous variables → mean
+      - Boolean/connection/heartbeat/status/WORD → max
+      - Cumulative variables (ENERGY_*, VARH_*) → delta (default) / last / mean
       - Setpoint/HW_VERSION → last
     """
 
     df = df.copy()
     df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
     if df[time_col].isna().any():
-        raise ValueError(f"{time_col} 有無效時間，請先清理。")
+        raise ValueError(f"{time_col} has invalid time, please clean first.")
 
-    # ==== 欄位分類（依名稱規則）====
+    # ==== Column classification (by naming rules) ====
     cols: List[str] = [c for c in df.columns if c not in (time_col, device_col)]
 
-    # 可能的「累積量」欄位（energy, varh）
+    # Possible "cumulative" columns (energy, varh)
     cumulative_cols = [c for c in cols if any([
         c.startswith("metric.ENERGY_") and c.endswith(".MEASURED"),
         c.startswith("metric.VARH_")   and c.endswith(".MEASURED"),
@@ -234,40 +234,40 @@ def downsample_inverter_raw(
         c == "metric.VARH_DELIVERED.MEASURED"
     ])]
 
-    # 狀態/錯誤碼/WORD/布林旗標類（含 COMM_LINK、HEARTBEAT）
+    # Status/error code/WORD/boolean flag types (including COMM_LINK, HEARTBEAT)
     state_like_cols = [c for c in cols if (
         c.startswith("metric.STATUS_") or
         c.endswith("WORD.MEASURED") or
         c in ["metric.COMM_LINK.MEASURED", "metric.HEARTBEAT.MEASURED"]
     )]
 
-    # Setpoint / 版本
+    # Setpoint / version
     last_pref_cols = [c for c in cols if (
         c.endswith("_SETPOINT.MEASURED") or
         c == "metric.HW_VERSION.MEASURED"
     )]
 
-    # 其餘視為連續量（電壓/電流/功率/頻率/溫度...）
+    # Others treated as continuous variables (voltage/current/power/frequency/temperature...)
     assigned = set(cumulative_cols) | set(state_like_cols) | set(last_pref_cols)
     continuous_mean_cols = [c for c in cols if c not in assigned]
 
-    # ==== 聚合函式定義 ====
+    # ==== Aggregation function definitions ====
     def agg_cumulative(s: pd.Series) -> float:
-        """區間增量：last - first，處理重置/回捲為 >=0"""
+        """Interval increment: last - first, handle reset/rollover as >=0"""
         if s.dropna().empty:
             return float("nan")
         first = s.iloc[0]
         last  = s.iloc[-1]
         return max(float(last) - float(first), 0.0)
 
-    # 聚合規則字典
+    # Aggregation rules dictionary
     agg: Dict[str, object] = {}
 
-    # 連續量 → mean
+    # Continuous variables → mean
     for c in continuous_mean_cols:
         agg[c] = "mean"
 
-    # 狀態/WORD/布林 → max
+    # Status/WORD/boolean → max
     for c in state_like_cols:
         agg[c] = "max"
 
@@ -280,7 +280,7 @@ def downsample_inverter_raw(
         if c.endswith('_missing'):
             agg[c] = 'mean'
 
-    # 累積量 → 依參數
+    # Cumulative variables → based on parameter
     if energy_as == "delta":
         for c in cumulative_cols:
             agg[c] = agg_cumulative
@@ -298,28 +298,28 @@ def downsample_inverter_raw(
     
     
     rs = pd.DataFrame()
-    # ==== 分裝置下採樣 ====
+    # ==== Downsample by device ====
     for device, group in df.groupby(device_col, sort=False):
-        # 依時間排序
+        # Sort by time
         group = group.sort_values(time_col)
 
-        # 依時間與裝置分組，並做 resample 聚合
+        # Group by time and device, then perform resample aggregation
         group = group.set_index(time_col)
         resampled = group.groupby(device_col).resample(freq).agg(agg).reset_index()
 
-        # 寫回原始 DataFrame
+        # Write back to original DataFrame
         if device_col not in resampled.columns:
             resampled[device_col] = device
         rs = pd.concat([rs, resampled], ignore_index=True)
 
     rs.reset_index(drop=True, inplace=True)
 
-    # optional: 丟掉該時間窗所有「連續量」皆 NaN 的列（通常代表窗內沒資料）
+    # optional: drop rows where all "continuous variables" are NaN in that time window (usually means no data in window)
     if drop_empty_bins and continuous_mean_cols:
         mask_all_nan = rs[continuous_mean_cols].isna().all(axis=1)
         rs = rs.loc[~mask_all_nan].copy()
 
-    # 欄位順序（盡量貼近原始）
+    # Column order (try to stay close to original)
     ordered = [time_col, device_col] + continuous_mean_cols + state_like_cols + last_pref_cols + cumulative_cols
     ordered = [c for c in ordered if c in rs.columns]
     rs = rs.loc[:, ordered].sort_values([device_col, time_col])
