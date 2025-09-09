@@ -1,0 +1,28 @@
+{
+    "window_size": 336,
+    "normal_stride": 12,
+    "positive_sample_stride": 2,
+    "feature_cols": [
+        "metric.STATUS_AC_MOD_ADMISSION_TEMP.MEASURED",
+        "metric.STATUS_INTERNAL_TEMP.MEASURED",
+        "metric.AC_VOLTAGE_AB.MEASURED",
+        "metric.AC_VOLTAGE_BC.MEASURED",
+        "metric.AC_VOLTAGE_CA.MEASURED",
+        "metric.DC_VOLTAGE.MEASURED",
+        "metric.AC_POWER.MEASURED",
+        "metric.STATUS_AC_MOD_ADMISSION_TEMP.MEASURED_missing",
+        "metric.STATUS_INTERNAL_TEMP.MEASURED_missing",
+        "metric.AC_VOLTAGE_AB.MEASURED_missing",
+        "metric.AC_VOLTAGE_BC.MEASURED_missing",
+        "metric.AC_VOLTAGE_CA.MEASURED_missing",
+        "metric.DC_VOLTAGE.MEASURED_missing",
+        "metric.AC_POWER.MEASURED_missing",
+        "hour_sin",
+        "hour_cos",
+        "month_sin",
+        "month_cos",
+        "V_mean",
+        "V_unbalance",
+        "T_delta"
+    ]
+}
