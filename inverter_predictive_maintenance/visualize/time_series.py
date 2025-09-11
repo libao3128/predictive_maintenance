@@ -1,66 +1,59 @@
-import plotly.express as px
+"""
+Time series visualization utilities for predictive maintenance.
+
+This module provides functions for visualizing time series data,
+failure sessions, and device-specific patterns.
+"""
+
 import os
-from tqdm import tqdm
 import pandas as pd
 import numpy as np
+import plotly.express as px
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
-import matplotlib.pyplot as plt
-from sklearn.metrics import precision_recall_curve
-
-def _plot_device_series(g: pd.DataFrame,
-                        feature_cols,
-                        device: str,
-                        fs_by_dev: dict,
-                        outdir: str,
-                        title: str,
-                        ts_col: str = "ts"):
-    """Single device plotting and HTML output."""
-    fig = px.line(g, x=ts_col, y=feature_cols, title=f'{device} {title}')
-    start_time, end_time = g[ts_col].min(), g[ts_col].max()
-
-    for _, row in fs_by_dev.get(device, pd.DataFrame()).iterrows():
-        if (row['end_time'] < start_time) or (row['start_time'] > end_time):
-            continue
-        color = "gray" if row.get('maintenance', False) else "red"
-        session_id = row.get('session_id', '')
-        annotation_text = f"Session: {session_id}" if session_id else "Failure Session"
-        if row.get('maintenance', False):
-            annotation_text += " (Maintenance)"
-        fig.add_vrect(
-            x0=row['start_time'],
-            x1=row['end_time'],
-            fillcolor=color,
-            opacity=0.5,
-            annotation_text=annotation_text,
-            annotation_position="top left"
-        )
-
-    fig.update_layout(
-        xaxis_title='Time',
-        yaxis_title='Mean Value',
-        legend_title='Features',
-        title_x=0.5
-    )
-    fig.write_html(f'{outdir}/{device}.html', full_html=False, include_plotlyjs='cdn')
+from typing import List, Optional, Union
 
 
-def visualize_mean_values(inverter_data: pd.DataFrame,
-                          failure_sessions: pd.DataFrame,
-                          feature_cols,
-                          folder_path: str = 'visualization',
-                          title: str = 'Mean Values of Features',
-                          time_col: str = 'event_local_time',
-                          device_col: str = 'device_name',
-                          freq: str | None = 'H',
-                          workers: int = 8) -> str:
+def visualize_mean_values(
+    inverter_data: pd.DataFrame,
+    failure_sessions: pd.DataFrame,
+    feature_cols: List[str],
+    folder_path: str = 'visualization',
+    title: str = 'Mean Values of Features',
+    time_col: str = 'event_local_time',
+    device_col: str = 'device_name',
+    freq: Optional[str] = 'H',
+    workers: int = 8
+) -> str:
     """
-    General visualization:
-      - freq=None => plot directly with original time points (equivalent to original visualize_raw_mean_values)
-      - freq='H'  => aggregate by hour (equivalent to original visualize_hourly_mean_values)
-      - Can also pass other pandas offset aliases like '30T', 'D', etc.
-
-    Returns output folder path.
+    Create visualizations of mean feature values with failure session overlays.
+    
+    This function generates interactive HTML plots for each device showing
+    feature values over time with failure sessions highlighted.
+    
+    Args:
+        inverter_data: DataFrame containing time series data
+        failure_sessions: DataFrame containing failure session information
+        feature_cols: List of feature columns to visualize
+        folder_path: Base folder for saving visualizations
+        title: Title for the visualization
+        time_col: Name of the time column
+        device_col: Name of the device column
+        freq: Aggregation frequency (None for raw data, 'H' for hourly, etc.)
+        workers: Number of worker threads for parallel processing
+        
+    Returns:
+        Path to the output directory containing HTML files
+        
+    Raises:
+        ValueError: If required columns are missing
     """
+    # Validate required columns
+    required_cols = [time_col, device_col] + feature_cols
+    missing_cols = [col for col in required_cols if col not in inverter_data.columns]
+    if missing_cols:
+        raise ValueError(f"Missing columns in inverter_data: {missing_cols}")
+    
     # Preprocessing and optional aggregation
     cols = [time_col, device_col] + list(feature_cols)
     df = inverter_data[cols].copy()
@@ -95,41 +88,99 @@ def visualize_mean_values(inverter_data: pd.DataFrame,
     print(f"Visualization saved at {outdir}/*.html")
     return outdir
 
-    
+
+def _plot_device_series(
+    g: pd.DataFrame,
+    feature_cols: List[str],
+    device: str,
+    fs_by_dev: dict,
+    outdir: str,
+    title: str,
+    ts_col: str = "ts"
+) -> None:
+    """Create a single device plot with failure session overlays."""
+    fig = px.line(g, x=ts_col, y=feature_cols, title=f'{device} {title}')
+    start_time, end_time = g[ts_col].min(), g[ts_col].max()
+
+    # Add failure session overlays
+    for _, row in fs_by_dev.get(device, pd.DataFrame()).iterrows():
+        if (row['end_time'] < start_time) or (row['start_time'] > end_time):
+            continue
+        
+        color = "gray" if row.get('maintenance', False) else "red"
+        session_id = row.get('session_id', '')
+        annotation_text = f"Session: {session_id}" if session_id else "Failure Session"
+        if row.get('maintenance', False):
+            annotation_text += " (Maintenance)"
+        
+        fig.add_vrect(
+            x0=row['start_time'],
+            x1=row['end_time'],
+            fillcolor=color,
+            opacity=0.5,
+            annotation_text=annotation_text,
+            annotation_position="top left"
+        )
+
+    fig.update_layout(
+        xaxis_title='Time',
+        yaxis_title='Mean Value',
+        legend_title='Features',
+        title_x=0.5
+    )
+    fig.write_html(f'{outdir}/{device}.html', full_html=False, include_plotlyjs='cdn')
+
+
 def visualize_failure_timeline(
     failure_sessions: pd.DataFrame,
-    *,
-    device_subset=None,                 # e.g., ['INV 01','INV 02']
-    order_by="total_downtime",          # 'total_downtime' | 'first_start' | 'name'
-    height_per_device=30,
-    min_visible_hours=12,               # 短事件顯示的最小寬度（只影響視覺，不影響原始值）
-    title="Failure Sessions Timeline"
-):
+    device_subset: Optional[List[str]] = None,
+    order_by: str = "total_downtime",
+    height_per_device: int = 30,
+    min_visible_hours: int = 12,
+    title: str = "Failure Sessions Timeline"
+) -> None:
     """
-    Required columns:
-      start_time, end_time (datetime-like), device_name (str),
-      maintenance (bool), session_id (str/int optional)
+    Create a timeline visualization of failure sessions.
+    
+    This function generates an interactive timeline showing failure sessions
+    for all devices, with different colors for planned vs unplanned failures.
+    
+    Args:
+        failure_sessions: DataFrame containing failure session data
+        device_subset: List of device names to include (None for all)
+        order_by: Method for ordering devices ('total_downtime', 'first_start', 'name')
+        height_per_device: Height in pixels per device row
+        min_visible_hours: Minimum visible width for short events
+        title: Title for the visualization
+        
+    Raises:
+        ValueError: If required columns are missing
     """
-
     df = failure_sessions.copy()
 
-    # --- Time column normalization ---
+    # Validate required columns
+    required_cols = ["start_time", "end_time", "device_name"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
+
+    # Time column normalization
     for c in ["start_time", "end_time"]:
         if not np.issubdtype(df[c].dtype, np.datetime64):
             df[c] = pd.to_datetime(df[c], utc=True, errors="coerce")
     df = df.dropna(subset=["start_time", "end_time", "device_name"])
 
-    # --- Derived columns ---
+    # Derived columns
     df["duration_hours"] = (df["end_time"] - df["start_time"]).dt.total_seconds() / 3600.0
     df["maintenance_label"] = np.where(df["maintenance"].astype(bool),
                                        "Planned (maintenance)",
                                        "Unplanned failure")
 
-    # Subset
+    # Subset devices if specified
     if device_subset is not None:
         df = df[df["device_name"].isin(device_subset)]
 
-    # --- Sorting ---
+    # Sorting
     if order_by == "total_downtime":
         order = (df.groupby("device_name")["duration_hours"]
                    .sum()
@@ -143,21 +194,20 @@ def visualize_failure_timeline(
     else:  # name
         order = sorted(df["device_name"].unique())
 
-    # --- Visual minimum width (avoid short events appearing to disappear) ---
-    # Visually pad segments that are too short to min_visible_hours, but hover still shows real duration
+    # Visual minimum width (avoid short events appearing to disappear)
     min_delta = pd.to_timedelta(min_visible_hours, unit="h")
     df["x_start_vis"] = df["start_time"]
-    df["x_end_vis"]   = df["end_time"]
+    df["x_end_vis"] = df["end_time"]
     too_short = (df["end_time"] - df["start_time"]) < min_delta
     df.loc[too_short, "x_end_vis"] = df.loc[too_short, "start_time"] + min_delta
     df["visual_padded"] = too_short
 
-    # --- Plotting ---
+    # Plotting
     height = max(420, int(height_per_device * len(order) + 140))
 
     color_map = {
-        "Planned (maintenance)": "#6b7280",  # Dark gray (more contrast than original)
-        "Unplanned failure":     "#2563eb",  # Saturated blue
+        "Planned (maintenance)": "#6b7280",  # Dark gray
+        "Unplanned failure": "#2563eb",      # Saturated blue
     }
 
     labels = {
@@ -180,9 +230,9 @@ def visualize_failure_timeline(
         hover_data={
             "session_id": True if "session_id" in df.columns else False,
             "start_time": "|%Y-%m-%d %H:%M",
-            "end_time":   "|%Y-%m-%d %H:%M",
+            "end_time": "|%Y-%m-%d %H:%M",
             "duration_hours": ':.2f',
-            "visual_padded": True,        # 告知是否做了視覺補寬
+            "visual_padded": True,
             "device_name": False,
             "maintenance_label": False
         },
@@ -190,7 +240,7 @@ def visualize_failure_timeline(
         title=title,
     )
 
-    # y-axis and layout
+    # Layout updates
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
         template="plotly_white",
@@ -231,30 +281,3 @@ def visualize_failure_timeline(
     )
 
     fig.show()
-    
-def visualize_log(log):
-    plt.plot(log['train_loss'], label='train_loss')
-    plt.plot(log['val_loss'], label='val_loss')
-    plt.plot(log['aucpr'], label='aucpr')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    
-def plot_outputs_distribution(probs_calibrated, labels, title="Validation Outputs Distribution"):
-    df = pd.DataFrame(
-        {
-            "scores": probs_calibrated,
-            "labels": labels
-        }
-    )
-    fig = px.histogram(df, x="scores", color="labels", barmode="stack", histnorm="probability", title=title)
-    fig.update_xaxes(range=[0, 1])
-    fig.show()
-
-def plot_precision_recall(trues, prob):
-    precision, recall, thresholds = precision_recall_curve(trues, prob)
-    plt.plot(recall, precision, marker='.')
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall Curve')
-    plt.show()
