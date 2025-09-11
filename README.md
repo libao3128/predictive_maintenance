@@ -20,7 +20,7 @@ predictive_maintenance/
 │── dataset/                      # Dataset preparation and evaluation notebooks
 │── model/                        # Model definitions and saved models
 │── plot/                         # Plotting and visualization utilities
-│── src/                          # Core source code (pipeline, utilities)
+│── inverter_predictive_maintenance/  # Core package (pipeline, utilities)
 │── .gitignore                    # Git ignore rules
 │── README.md                     # Project introduction (this file)
 │── evaluate_model.ipynb          # Notebook for evaluating trained models
