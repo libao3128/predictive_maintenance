@@ -40,6 +40,10 @@ from .metrics import cal_topK_metrics
 
 from .training import train_loop, test_loop, get_logits_and_labels, generate_report, evaluate_model
 
+from .postprocess import smooth_by_consecutive
+
+from .visualize import plot_outputs_distribution, plot_precision_recall
+
 __all__ = [
     # Dataset classes
     "InverterTimeSeriesDataset",
@@ -63,5 +67,12 @@ __all__ = [
     "test_loop", 
     "get_logits_and_labels",
     "generate_report",
-    "evaluate_model"
+    "evaluate_model",
+    
+    # Post-processing utilities
+    "smooth_by_consecutive",
+    
+    # Visualization utilities
+    "plot_outputs_distribution",
+    "plot_precision_recall"
 ]

@@ -21,5 +21,34 @@
         "V_mean",
         "V_unbalance",
         "T_delta"
+    ],
+    "window_size": 30,
+    "stride": 1,
+    "pre_days": 5,
+    "exclude_periods": [
+        [
+            "2021-01-01 00:00:00",
+            "2021-12-23 00:00:00"
+        ],
+        [
+            "2023-02-23 00:00:00",
+            "2023-08-26 00:00:00"
+        ]
+    ],
+    "split_time": [
+        "2024-06-30 00:00:00",
+        "2025-01-01 00:00:00"
+    ],
+    "standardized_features": [
+        "metric.STATUS_AC_MOD_ADMISSION_TEMP.MEASURED",
+        "metric.STATUS_INTERNAL_TEMP.MEASURED",
+        "metric.AC_VOLTAGE_AB.MEASURED",
+        "metric.AC_VOLTAGE_BC.MEASURED",
+        "metric.AC_VOLTAGE_CA.MEASURED",
+        "metric.DC_VOLTAGE.MEASURED",
+        "metric.AC_POWER.MEASURED",
+        "V_mean",
+        "V_unbalance",
+        "T_delta"
     ]
 }

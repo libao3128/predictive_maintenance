@@ -24,5 +24,19 @@
         "V_mean",
         "V_unbalance",
         "T_delta"
-    ]
+    ],
+    "model_params": {
+        "num_features": 21,
+        "cnn_out_channels": 32,
+        "lstm_hidden_size": 64,
+        "lstm_layers": 2,
+        "dropout": 0.5
+    },
+    "training_params": {
+        "batch_size": 512,
+        "num_epochs": 10,
+        "learning_rate": 0.0003,
+        "weight_decay": 0.0001,
+        "warmup_ratio": 0.05
+    }
 }
