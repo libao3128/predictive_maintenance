@@ -10,3 +10,5 @@ visualization/
 model/local/
 .vscode/
 .DS_Store
+scripts/model/
+plot/
