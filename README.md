@@ -109,12 +109,6 @@ Advisors:
 
 ---
 
-## 🤝 Contributing
-We welcome contributions via pull requests.  
-Please follow our coding style guidelines and include unit tests for any new feature.  
-
-1. Fork the repo  
-2. Create a feature branch (`git checkout -b feature/my-feature`)  
-3. Commit your changes (`git commit -m "Add my feature"`)  
-4. Push to the branch (`git push origin feature/my-feature`)  
-5. Open a Pull Request  
+## TODO
+- [] Refine InverterTimeSeriesDataset to support metadata record. (Angela's features)
+- [] Add temporal smoothing post process. (Grace's features)
